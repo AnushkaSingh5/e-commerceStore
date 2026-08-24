@@ -286,7 +286,15 @@ export function AuthProvider({ children }) {
         if (!isSubscribed) return;
 
         if (activeSession) {
-          if (activeSession.user && !activeSession.user.email_confirmed_at) {
+          const isCustomer = activeSession.user?.user_metadata?.role === 'customer' || activeSession.user?.app_metadata?.role === 'customer';
+          if (isCustomer) {
+            console.log("🔔 [Kreatorstore - Auth]: loadInitialSession ignored user because they are a customer.");
+            setSession(null);
+            setUser(null);
+            setProfile(null);
+            setRole(null);
+            setStoreLoading(false);
+          } else if (activeSession.user && !activeSession.user.email_confirmed_at) {
             console.log("🧹 [Kreatorstore - Auth]: Clearing unverified session on load.");
             await supabaseClient.auth.signOut();
             setSession(null);
@@ -343,6 +351,19 @@ export function AuthProvider({ children }) {
 
         try {
           const currentUser = activeSession?.user ?? null;
+          
+          if (currentUser) {
+            const isCustomer = currentUser.user_metadata?.role === 'customer' || currentUser.app_metadata?.role === 'customer';
+            if (isCustomer) {
+              console.log("🔔 [Kreatorstore - Auth]: onAuthStateChange ignored user because they are a customer.");
+              setSession(null);
+              setUser(null);
+              setProfile(null);
+              setStore(null);
+              setRole(null);
+              return;
+            }
+          }
           
           if (currentUser && !currentUser.email_confirmed_at) {
             console.log("🔔 [Kreatorstore - Auth]: onAuthStateChange ignored profile fetch because email is unverified.");
