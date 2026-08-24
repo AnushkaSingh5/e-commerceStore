@@ -93,7 +93,7 @@ export const adminService = {
       // 2. Direct fallback (original direct query for local testing/bootstrap)
       const { data: storesData, error: storesError } = await supabaseClient
         .from('stores')
-        .select('*, creator:creator_id(name, email, verification_status)')
+        .select('*, creator:creator_id(email, sellers(name, verification_status))')
         .order('created_at', { ascending: false });
 
       if (storesError) throw storesError;
@@ -128,7 +128,7 @@ export const adminService = {
           logoUrl: store.logo_url,
           bannerUrl: store.banner_url,
           statusReason: store.status_reason,
-          ownerName: store.creator?.name || 'Unknown Creator',
+          ownerName: store.creator?.sellers?.name || 'Unknown Creator',
           email: store.creator?.email || 'N/A',
           status: uiStatus,
           createdDate: toLocalDateString(store.created_at),
@@ -137,7 +137,7 @@ export const adminService = {
           ordersCount: storeOrds.length,
           revenue: totalRevenue,
           growth: 0,
-          ownerVerificationStatus: store.creator?.verification_status || 'Not Submitted'
+          ownerVerificationStatus: store.creator?.sellers?.verification_status || 'Not Submitted'
         };
       });
     } catch (e) {
