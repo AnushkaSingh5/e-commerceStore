@@ -71,7 +71,10 @@ export default function StoreSignupPage({ params }) {
     setErrorMsg('');
     setSuccessMsg('');
     try {
-      const callbackUrl = `${window.location.origin}/customer/login?redirect=${encodeURIComponent(redirect)}`;
+      const origin = window.location.hostname === 'localhost'
+        ? window.location.origin
+        : 'https://e-commerce-store-lemon-three.vercel.app';
+      const callbackUrl = `${origin}/customer/login?redirect=${encodeURIComponent(redirect)}`;
       console.log(`🔄 [Kreatorstore - StoreSignupPage]: Triggering OAuth signup for ${provider} with callback ${callbackUrl}`);
       await loginWithProvider(provider, callbackUrl);
     } catch (err) {

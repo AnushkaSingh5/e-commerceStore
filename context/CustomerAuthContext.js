@@ -44,7 +44,7 @@ export function CustomerAuthProvider({ children }) {
   };
 
   // Fetch customer profile from public.customers using auth UID
-  const fetchCustomerProfile = async (authId, userObject = null) => {
+  const fetchCustomerProfile = async (authId, userObject = null, isExplicitLogin = false) => {
     if (!supabaseClient) return null;
 
     try {
@@ -66,11 +66,13 @@ export function CustomerAuthProvider({ children }) {
         if (isActiveSeller) {
           console.log(`[Kreatorstore - CustomerAuth] User is an active seller. Keeping database role as creator.`);
           // Check if they explicitly logged in as customer on storefront
-          const loggedInCustomerId = typeof window !== 'undefined' && localStorage.getItem('customer_user_id');
-          if (loggedInCustomerId !== authId) {
-            console.log(`[Kreatorstore - CustomerAuth] Active seller has not explicitly logged in as storefront customer. Treating as guest.`);
-            setCustomerProfile(null);
-            return { success: true, profile: null };
+          if (!isExplicitLogin) {
+            const loggedInCustomerId = typeof window !== 'undefined' && localStorage.getItem('customer_user_id');
+            if (loggedInCustomerId !== authId) {
+              console.log(`[Kreatorstore - CustomerAuth] Active seller has not explicitly logged in as storefront customer. Treating as guest.`);
+              setCustomerProfile(null);
+              return { success: true, profile: null };
+            }
           }
         } else {
           console.log(`[Kreatorstore - CustomerAuth] User is a new signup/un-onboarded user defaulted to creator. Updating role to customer.`);
@@ -274,7 +276,7 @@ export function CustomerAuthProvider({ children }) {
       if (error) throw error;
 
       // Verify the user is a registered customer
-      const result = await fetchCustomerProfile(data.user.id, data.user);
+      const result = await fetchCustomerProfile(data.user.id, data.user, true);
       if (result && result.success && !result.profile) {
         // If not a customer, log out immediately and throw error
         await supabaseClient.auth.signOut();
@@ -494,7 +496,7 @@ export function CustomerAuthProvider({ children }) {
       if (error) throw error;
 
       // Verify customer record
-      const profileData = await fetchCustomerProfile(data.user.id, data.user);
+      const profileData = await fetchCustomerProfile(data.user.id, data.user, true);
       localStorage.setItem('customer_user_id', data.user.id);
       setCustomer(data.user);
       return { success: true, user: data.user, profile: profileData };
