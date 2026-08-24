@@ -123,6 +123,14 @@ export function CustomerAuthProvider({ children }) {
 
     const loadSession = async () => {
       startLoading();
+      const isCustomerActive = typeof window !== 'undefined' && localStorage.getItem('customer_logged_in') === 'true';
+      if (!isCustomerActive) {
+        setCustomer(null);
+        setCustomerProfile(null);
+        setLoading(false);
+        completeLoading();
+        return;
+      }
       try {
         console.log("Session restore started");
         const getSessionTimeout = new Promise((resolve) => {
@@ -187,6 +195,12 @@ export function CustomerAuthProvider({ children }) {
         }
 
         try {
+          const isCustomerActive = typeof window !== 'undefined' && localStorage.getItem('customer_logged_in') === 'true';
+          if (!isCustomerActive) {
+            setCustomer(null);
+            setCustomerProfile(null);
+            return;
+          }
           if (session && session.user) {
             const result = await fetchCustomerProfile(session.user.id, session.user);
             if (result && result.success) {
@@ -221,6 +235,7 @@ export function CustomerAuthProvider({ children }) {
     setLoading(true);
     startLoading();
     try {
+      localStorage.setItem('customer_logged_in', 'true');
       const { data, error } = await supabaseClient.auth.signInWithPassword({
         email,
         password,
@@ -234,14 +249,17 @@ export function CustomerAuthProvider({ children }) {
         await supabaseClient.auth.signOut();
         setCustomer(null);
         setCustomerProfile(null);
+        localStorage.removeItem('customer_logged_in');
         throw new Error('This account is not registered as a Customer. Please sign up or use a customer account.');
       } else if (result && !result.success) {
+        localStorage.removeItem('customer_logged_in');
         throw new Error(result.error || 'Failed to authenticate customer. Please try again.');
       }
 
       setCustomer(data.user);
       return { success: true };
     } catch (err) {
+      localStorage.removeItem('customer_logged_in');
       console.error('❌ [Kreatorstore - CustomerAuth]: Login failed:', err);
       throw err;
     } finally {
@@ -255,6 +273,7 @@ export function CustomerAuthProvider({ children }) {
     setLoading(true);
     startLoading();
     try {
+      localStorage.setItem('customer_logged_in', 'true');
       // 1. Create Supabase Auth User with metadata
       let signUpData;
       let signUpError;
@@ -338,6 +357,7 @@ export function CustomerAuthProvider({ children }) {
       setCustomerProfile(profileData);
       return { success: true };
     } catch (err) {
+      localStorage.removeItem('customer_logged_in');
       console.warn('❌ [Kreatorstore - CustomerAuth]: Signup failed:', err);
       throw err;
     } finally {
@@ -352,12 +372,14 @@ export function CustomerAuthProvider({ children }) {
     startLoading();
     try {
       localStorage.removeItem('remember_me');
+      localStorage.removeItem('customer_logged_in');
       sessionStorage.removeItem('session_active');
       await supabaseClient.auth.signOut();
       console.log('✅ [Kreatorstore - CustomerAuth]: Supabase signOut completed.');
     } catch (err) {
       console.warn('❌ [Kreatorstore - CustomerAuth]: Logout failed:', err);
     } finally {
+      localStorage.removeItem('customer_logged_in');
       setCustomer(null);
       setCustomerProfile(null);
       setLoading(false);
@@ -371,6 +393,7 @@ export function CustomerAuthProvider({ children }) {
     setLoading(true);
     startLoading();
     try {
+      localStorage.setItem('customer_logged_in', 'true');
       console.log(`🔄 [Kreatorstore - CustomerAuth]: Logging in with provider: ${provider}`);
       const { data, error } = await supabaseClient.auth.signInWithOAuth({
         provider,
@@ -388,6 +411,7 @@ export function CustomerAuthProvider({ children }) {
       if (error) throw error;
       return data;
     } catch (err) {
+      localStorage.removeItem('customer_logged_in');
       console.error(`❌ [Kreatorstore - CustomerAuth]: Provider ${provider} login failed:`, err);
       throw err;
     } finally {
@@ -427,6 +451,7 @@ export function CustomerAuthProvider({ children }) {
     setLoading(true);
     startLoading();
     try {
+      localStorage.setItem('customer_logged_in', 'true');
       console.log(`🔄 [Kreatorstore - CustomerAuth]: Verifying OTP for phone: ${phone}`);
       const { data, error } = await supabaseClient.auth.verifyOtp({
         phone,
@@ -440,6 +465,7 @@ export function CustomerAuthProvider({ children }) {
       setCustomer(data.user);
       return { success: true, user: data.user, profile: profileData };
     } catch (err) {
+      localStorage.removeItem('customer_logged_in');
       console.error('❌ [Kreatorstore - CustomerAuth]: Phone OTP verification failed:', err);
       throw err;
     } finally {
