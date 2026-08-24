@@ -17,6 +17,12 @@ import { categoryService } from '@/services/categoryService';
 import { getDefaultStoreData } from '@/lib/defaultStoreData';
 
 export default function StoreClient({ slug, initialStoreDetails, initialProducts, initialCategories }) {
+  console.log(`[AUTH DEBUG] [K] customer store page started rendering: ${performance.now()} ms`);
+
+  useEffect(() => {
+    console.log(`[AUTH DEBUG] [L] customer store page finished loading/mount: ${performance.now()} ms`);
+  }, []);
+
   const { selectedCategory, setSelectedCategory, searchQuery, setSearchQuery } = useStore();
   const { startLoading, completeLoading } = useLoading();
   const [products, setProducts] = useState(initialProducts || []);

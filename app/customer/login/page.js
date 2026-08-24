@@ -73,12 +73,15 @@ function LoginContent() {
   // Calculate back URL to return to the active store instead of the root landing page
   const backUrl = redirect && (redirect.startsWith('/store/') || redirect.startsWith('/demo-store/')) ? redirect : '/';
 
+  console.log(`[AUTH DEBUG] [H] redirect parameter was read: "${redirect}" at ${performance.now()} ms`);
+
   // Auto-redirect if already logged in (essential for OAuth callback landing)
   useEffect(() => {
     if (isAuthenticated && !redirectingRef.current) {
       redirectingRef.current = true;
-      console.log('✅ [Kreatorstore - CustomerLogin]: Customer is already authenticated. Redirecting to:', redirect);
+      console.log(`[AUTH DEBUG] [I] router.push() called (auto-redirect) to "${redirect}" at ${performance.now()} ms`);
       router.push(redirect);
+      console.log(`[AUTH DEBUG] [J] navigation actually started (auto-redirect) at ${performance.now()} ms`);
     }
   }, [isAuthenticated, redirect, router]);
 
@@ -100,6 +103,7 @@ function LoginContent() {
 
   const handleLogin = async (e) => {
     e.preventDefault();
+    console.log(`[AUTH DEBUG] [A] Sign In button clicked: ${performance.now()} ms`);
     setLoading(true);
     setErrorMsg('');
     setSuccessMsg('');
@@ -108,8 +112,9 @@ function LoginContent() {
       const res = await login(email, password);
       if (res && res.success) {
         redirectingRef.current = true;
-        console.log('✅ [Kreatorstore - CustomerLogin]: Login success. Redirecting to:', redirect);
+        console.log(`[AUTH DEBUG] [I] router.push() called (handleLogin) to "${redirect}" at ${performance.now()} ms`);
         router.push(redirect);
+        console.log(`[AUTH DEBUG] [J] navigation actually started (handleLogin) at ${performance.now()} ms`);
       } else {
         setLoading(false);
       }
