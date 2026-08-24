@@ -170,7 +170,8 @@ export default function CartPage({ params }) {
   const hasInventoryErrors = selectedCartItems.some(item => item.stock === 0 || item.quantity > item.stock || item.is_deleted);
 
   const shippingType = storeDetails?.theme_settings?.shippingType ?? 'flat';
-  const flatFee = parseFloat(storeDetails?.theme_settings?.flatFee) ?? 15;
+  const parsedFlatFee = parseFloat(storeDetails?.theme_settings?.flatFee);
+  const flatFee = isNaN(parsedFlatFee) ? 15 : parsedFlatFee;
   
   let shipping = 0;
   if (selectedCartItems.length > 0) {

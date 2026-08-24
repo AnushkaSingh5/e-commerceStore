@@ -334,7 +334,8 @@ export default function StoreCheckoutPage({ params }) {
   const tax = cartTotal * 0.08;
   
   const shippingType = storeDetails?.theme_settings?.shippingType ?? 'flat';
-  const flatFee = parseFloat(storeDetails?.theme_settings?.flatFee) ?? 15;
+  const parsedFlatFee = parseFloat(storeDetails?.theme_settings?.flatFee);
+  const flatFee = isNaN(parsedFlatFee) ? 15 : parsedFlatFee;
   
   let shippingCost = 0;
   if (cart.length > 0) {
