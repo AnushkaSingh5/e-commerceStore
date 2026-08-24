@@ -25,7 +25,7 @@ const getInitials = (name) => {
 };
 
 export default function AdminCreators() {
-  const { stores = [], approveStore, rejectStore, disableStore, loading } = useAdmin();
+  const { stores = [], approveStore, rejectStore, disableStore, loading, loadPlatformData } = useAdmin();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatusFilter, setSelectedStatusFilter] = useState('All');
   const [selectedCreator, setSelectedCreator] = useState(null);
@@ -59,9 +59,9 @@ export default function AdminCreators() {
   };
 
   // Dynamic Metrics
-  const activeSellers = loading ? 0 : stores.filter(s => s.status === 'Active').length;
-  const pendingSellers = loading ? 0 : stores.filter(s => s.status === 'Pending').length;
-  const rejectedSellers = loading ? 0 : stores.filter(s => s.status === 'Rejected').length;
+  const activeSellers = loading ? 0 : stores.filter(s => s.ownerVerificationStatus === 'Verified').length;
+  const pendingSellers = loading ? 0 : stores.filter(s => s.ownerVerificationStatus === 'Under Review' || s.ownerVerificationStatus === 'Pending' || s.ownerVerificationStatus === 'Not Submitted').length;
+  const rejectedSellers = loading ? 0 : stores.filter(s => s.ownerVerificationStatus === 'Rejected').length;
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
@@ -79,6 +79,7 @@ export default function AdminCreators() {
     email: store.email || '',
     storeName: store.name || '',
     status: store.status || '',
+    verificationStatus: store.ownerVerificationStatus || 'Not Submitted',
     joinedDate: store.createdDate || '',
     revenue: store.revenue || 0,
     growth: store.growth || 0
@@ -94,7 +95,9 @@ export default function AdminCreators() {
     if (endDate && c.joinedDate > endDate) return false;
 
     // Status filter
-    if (selectedStatusFilter !== 'All' && c.status !== selectedStatusFilter) return false;
+    if (selectedStatusFilter === 'Active' && c.verificationStatus !== 'Verified') return false;
+    if (selectedStatusFilter === 'Pending' && c.verificationStatus !== 'Under Review' && c.verificationStatus !== 'Pending' && c.verificationStatus !== 'Not Submitted') return false;
+    if (selectedStatusFilter === 'Rejected' && c.verificationStatus !== 'Rejected') return false;
 
     return true;
   });
@@ -151,6 +154,9 @@ export default function AdminCreators() {
       const res = await profileService.adminUpdateVerificationStatus(selectedCreator.creatorId, 'Verified');
       if (res.success) {
         alert('Seller marked as Verified successfully!');
+        if (loadPlatformData) {
+          await loadPlatformData();
+        }
         // Refresh details
         const profRes = await profileService.getProfile(selectedCreator.creatorId);
         const docsRes = await profileService.getCreatorDocuments(selectedCreator.creatorId);
@@ -175,6 +181,9 @@ export default function AdminCreators() {
       const res = await profileService.adminUpdateVerificationStatus(selectedCreator.creatorId, 'Rejected');
       if (res.success) {
         alert('Seller verification status updated to Rejected.');
+        if (loadPlatformData) {
+          await loadPlatformData();
+        }
         // Refresh details
         const profRes = await profileService.getProfile(selectedCreator.creatorId);
         const docsRes = await profileService.getCreatorDocuments(selectedCreator.creatorId);
@@ -195,8 +204,13 @@ export default function AdminCreators() {
     { field: 'email', label: 'Email' },
     { field: 'storeName', label: 'Store Name' },
     { field: 'revenue', label: 'Total Revenue', render: (row) => `₹${(row.revenue || 0).toLocaleString()}` },
-    { field: 'status', label: 'Status', render: (row) => (
-      <span className={`status-badge ${row.status.toLowerCase()}`}>{row.status}</span>
+    { field: 'verificationStatus', label: 'Status', render: (row) => (
+      <span className="status-badge" style={{
+        backgroundColor: getVerificationStatusColor(row.verificationStatus) + '20',
+        color: getVerificationStatusColor(row.verificationStatus)
+      }}>
+        {row.verificationStatus}
+      </span>
     )},
   ];
 
@@ -385,9 +399,26 @@ export default function AdminCreators() {
                     <h4 className="creator-name-text">{c.name}</h4>
                     <span className="email-text">{c.email}</span>
                     <span className="store-name-text">{c.storeName}</span>
-                    <span className={`status-pill ${c.status.toLowerCase()}`}>
-                      <span className={`status-dot ${c.status.toLowerCase()}`}></span>
-                      {c.status === 'Active' ? 'Active' : c.status}
+                    <span className="status-pill" style={{
+                      backgroundColor: getVerificationStatusColor(c.verificationStatus) + '20',
+                      color: getVerificationStatusColor(c.verificationStatus),
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '4px 8px',
+                      borderRadius: '8px',
+                      fontSize: '11px',
+                      fontWeight: '700',
+                      width: 'fit-content'
+                    }}>
+                      <span className="status-dot" style={{
+                        backgroundColor: getVerificationStatusColor(c.verificationStatus),
+                        width: '6px',
+                        height: '6px',
+                        borderRadius: '50%',
+                        display: 'inline-block'
+                      }}></span>
+                      {c.verificationStatus}
                     </span>
                     <span className="revenue-text">Revenue: ₹{(c.revenue || 0).toLocaleString()}</span>
                   </div>

@@ -238,7 +238,8 @@ export function AdminProvider({ children }) {
       approveStore,
       rejectStore,
       disableStore,
-      deleteProduct
+      deleteProduct,
+      loadPlatformData
     }}>
       {children}
     </AdminContext.Provider>
