@@ -65,6 +65,13 @@ export function CustomerAuthProvider({ children }) {
       if (userProfile && userProfile.role === 'creator') {
         if (isActiveSeller) {
           console.log(`[Kreatorstore - CustomerAuth] User is an active seller. Keeping database role as creator.`);
+          // Check if they explicitly logged in as customer on storefront
+          const loggedInCustomerId = typeof window !== 'undefined' && localStorage.getItem('customer_user_id');
+          if (loggedInCustomerId !== authId) {
+            console.log(`[Kreatorstore - CustomerAuth] Active seller has not explicitly logged in as storefront customer. Treating as guest.`);
+            setCustomerProfile(null);
+            return { success: true, profile: null };
+          }
         } else {
           console.log(`[Kreatorstore - CustomerAuth] User is a new signup/un-onboarded user defaulted to creator. Updating role to customer.`);
           await supabaseClient
@@ -165,9 +172,6 @@ export function CustomerAuthProvider({ children }) {
     const loadSession = async () => {
       startLoading();
       
-      const loggedInCustomerId = typeof window !== 'undefined' && localStorage.getItem('customer_user_id');
-      const oauthInProgress = typeof window !== 'undefined' && localStorage.getItem('customer_oauth_in_progress') === 'true';
-      
       let activeSession = null;
       try {
         console.log("Session restore started");
@@ -187,35 +191,14 @@ export function CustomerAuthProvider({ children }) {
         console.warn('❌ [Kreatorstore - CustomerAuth]: Session load failed:', err);
       }
 
-      const sessionUser = activeSession?.user;
-      let isAuthorized = false;
-      if (loggedInCustomerId && sessionUser?.id === loggedInCustomerId) {
-        isAuthorized = true;
-      } else if (oauthInProgress && sessionUser) {
-        isAuthorized = true;
-        localStorage.setItem('customer_user_id', sessionUser.id);
-        localStorage.removeItem('customer_oauth_in_progress');
-      }
-
-      if (!isAuthorized) {
-        setCustomer(null);
-        setCustomerProfile(null);
-        setLoading(false);
-        completeLoading();
-        return;
-      }
-
       try {
         if (activeSession && activeSession.user && isSubscribed) {
           const result = await fetchCustomerProfile(activeSession.user.id, activeSession.user);
-          if (result && result.success) {
-            if (result.profile) {
-              setCustomer(activeSession.user);
-            } else {
-              setCustomer(null);
-              setCustomerProfile(null);
-              localStorage.removeItem('customer_user_id');
-            }
+          if (result && result.success && result.profile) {
+            setCustomer(activeSession.user);
+          } else {
+            setCustomer(null);
+            setCustomerProfile(null);
           }
         } else {
           setCustomer(null);
@@ -223,7 +206,7 @@ export function CustomerAuthProvider({ children }) {
         }
       } catch (err) {
         console.warn('⚠️ [Kreatorstore - CustomerAuth] Failed to load session profile due to network/timeout error:', err);
-        setCustomer(activeSession.user);
+        setCustomer(activeSession?.user || null);
       } finally {
         if (isSubscribed) {
           initialSessionLoadedRef.current = true;
@@ -251,41 +234,18 @@ export function CustomerAuthProvider({ children }) {
           return;
         }
 
-        const loggedInCustomerId = typeof window !== 'undefined' && localStorage.getItem('customer_user_id');
-        const oauthInProgress = typeof window !== 'undefined' && localStorage.getItem('customer_oauth_in_progress') === 'true';
-        const sessionUser = session?.user;
-
-        let isAuthorized = false;
-        if (loggedInCustomerId && sessionUser?.id === loggedInCustomerId) {
-          isAuthorized = true;
-        } else if (oauthInProgress && sessionUser) {
-          isAuthorized = true;
-          localStorage.setItem('customer_user_id', sessionUser.id);
-          localStorage.removeItem('customer_oauth_in_progress');
-        }
-
-        if (!isAuthorized) {
-          setCustomer(null);
-          setCustomerProfile(null);
-          return;
-        }
-
         try {
           if (session && session.user) {
             const result = await fetchCustomerProfile(session.user.id, session.user);
-            if (result && result.success) {
-              if (result.profile) {
-                setCustomer(session.user);
-              } else {
-                setCustomer(null);
-                setCustomerProfile(null);
-                localStorage.removeItem('customer_user_id');
-              }
+            if (result && result.success && result.profile) {
+              setCustomer(session.user);
+            } else {
+              setCustomer(null);
+              setCustomerProfile(null);
             }
           } else {
             setCustomer(null);
             setCustomerProfile(null);
-            localStorage.removeItem('customer_user_id');
           }
         } catch (err) {
           console.warn('❌ [Kreatorstore - CustomerAuth]: Auth state change error:', err);
