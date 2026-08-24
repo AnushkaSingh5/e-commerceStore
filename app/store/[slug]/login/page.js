@@ -9,7 +9,7 @@ import { supabaseClient } from '@/lib/supabase';
 import { useLoading } from '@/components/TopLoader';
 import StoreUnderReview from '@/components/StoreUnderReview';
 import PageLoader from '@/components/PageLoader';
-import { useAuth } from '@/context/AuthContext';
+import { useCustomerAuth } from '@/context/CustomerAuthContext';
 
 export default function StoreLoginPage({ params }) {
   const { slug } = use(params);
@@ -23,7 +23,7 @@ export default function StoreLoginPage({ params }) {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [storeDetails, setStoreDetails] = useState(null);
-  const { user, loading: authLoading } = useAuth();
+  const { customer, login, loginWithProvider, loading: authLoading } = useCustomerAuth();
 
   useEffect(() => {
     const fetchStore = async () => {
@@ -47,8 +47,7 @@ export default function StoreLoginPage({ params }) {
     startLoading();
     try {
       console.log('🔄 [Kreatorstore - StoreLoginPage]: Triggering signIn for customer:', email);
-      const result = await authService.signIn(email, password);
-      if (result && result.error) throw result.error;
+      await login(email, password);
       
       console.log('✅ [Kreatorstore - StoreLoginPage]: SignIn response success. Redirecting to:', redirect);
       console.log("Navigation triggered");
@@ -65,25 +64,16 @@ export default function StoreLoginPage({ params }) {
   const handleSocialLogin = async (provider) => {
     setErrorMsg('');
     try {
-      const callbackUrl = `${window.location.origin}${redirect}`;
+      const callbackUrl = `${window.location.origin}/customer/login?redirect=${encodeURIComponent(redirect)}`;
       console.log(`🔄 [Kreatorstore - StoreLoginPage]: Triggering OAuth login for ${provider} with callback ${callbackUrl}`);
-      const { error } = await supabaseClient.auth.signInWithOAuth({
-        provider,
-        options: {
-          redirectTo: callbackUrl,
-          data: {
-            role: 'customer',
-          }
-        }
-      });
-      if (error) throw error;
+      await loginWithProvider(provider, callbackUrl);
     } catch (err) {
       console.error(`❌ [Kreatorstore - StoreLoginPage]: ${provider} OAuth error:`, err);
       setErrorMsg(err.message || `Failed to sign in with ${provider}.`);
     }
   };
 
-  const currentUserId = user?.id;
+  const currentUserId = customer?.id;
   const isCreator = currentUserId && currentUserId === storeDetails?.creator_id;
 
   if (storeDetails && storeDetails.status !== 'approved' && authLoading) {

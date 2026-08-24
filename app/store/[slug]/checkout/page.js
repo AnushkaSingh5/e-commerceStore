@@ -67,7 +67,8 @@ export default function StoreCheckoutPage({ params }) {
     if (authLoading) return;
 
     if (!user) {
-      router.push(`/customer/login?redirect=/store/${slug}/checkout`);
+      const currentUrl = window.location.pathname + window.location.search;
+      router.push(`/store/${slug}/login?redirect=${encodeURIComponent(currentUrl)}`);
       return;
     }
 

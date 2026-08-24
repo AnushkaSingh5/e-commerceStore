@@ -9,7 +9,7 @@ import { supabaseClient } from '@/lib/supabase';
 import { useLoading } from '@/components/TopLoader';
 import StoreUnderReview from '@/components/StoreUnderReview';
 import PageLoader from '@/components/PageLoader';
-import { useAuth } from '@/context/AuthContext';
+import { useCustomerAuth } from '@/context/CustomerAuthContext';
 
 export default function StoreSignupPage({ params }) {
   const { slug } = use(params);
@@ -26,7 +26,7 @@ export default function StoreSignupPage({ params }) {
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [storeDetails, setStoreDetails] = useState(null);
-  const { user, loading: authLoading } = useAuth();
+  const { customer, signup, loginWithProvider, loading: authLoading } = useCustomerAuth();
 
   useEffect(() => {
     const fetchStore = async () => {
@@ -51,18 +51,7 @@ export default function StoreSignupPage({ params }) {
     startLoading();
     try {
       console.log('🔄 [Kreatorstore - StoreSignupPage]: Triggering signUp for customer:', email);
-      // SignUp options structure matches the schema setup to map role and metadata
-      const result = await authService.signUp(email, password, name, 'customer', phone);
-      if (result && result.error) throw result.error;
-
-      // Auto-authenticate: check if a session is returned, otherwise login explicitly
-      let session = result.data?.session;
-      if (!session) {
-        console.log('🔄 [Kreatorstore - StoreSignupPage]: No session in signUp response, performing explicit signIn...');
-        const loginRes = await authService.signIn(email, password);
-        if (loginRes.error) throw loginRes.error;
-        session = loginRes.data?.session;
-      }
+      await signup(email, password, name, phone);
       
       console.log('✅ [Kreatorstore - StoreSignupPage]: Customer signup and auto-login successful.');
       setSuccessMsg('Account created successfully! Redirecting...');
@@ -82,25 +71,16 @@ export default function StoreSignupPage({ params }) {
     setErrorMsg('');
     setSuccessMsg('');
     try {
-      const callbackUrl = `${window.location.origin}${redirect}`;
+      const callbackUrl = `${window.location.origin}/customer/login?redirect=${encodeURIComponent(redirect)}`;
       console.log(`🔄 [Kreatorstore - StoreSignupPage]: Triggering OAuth signup for ${provider} with callback ${callbackUrl}`);
-      const { error } = await supabaseClient.auth.signInWithOAuth({
-        provider,
-        options: {
-          redirectTo: callbackUrl,
-          data: {
-            role: 'customer',
-          }
-        }
-      });
-      if (error) throw error;
+      await loginWithProvider(provider, callbackUrl);
     } catch (err) {
       console.error(`❌ [Kreatorstore - StoreSignupPage]: ${provider} OAuth error:`, err);
       setErrorMsg(err.message || `Failed to sign up with ${provider}.`);
     }
   };
 
-  const currentUserId = user?.id;
+  const currentUserId = customer?.id;
   const isCreator = currentUserId && currentUserId === storeDetails?.creator_id;
 
   if (storeDetails && storeDetails.status !== 'approved' && authLoading) {
