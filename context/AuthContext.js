@@ -437,6 +437,8 @@ export function AuthProvider({ children }) {
     console.log('🔄 [Kreatorstore - Auth]: signIn start for:', email);
     startLoading();
     try {
+      localStorage.removeItem('customer_user_id');
+      localStorage.removeItem('customer_oauth_in_progress');
       const res = await supabaseClient.auth.signInWithPassword({
         email,
         password,
@@ -458,6 +460,8 @@ export function AuthProvider({ children }) {
     startLoading();
     try {
       localStorage.removeItem('remember_me');
+      localStorage.removeItem('customer_user_id');
+      localStorage.removeItem('customer_oauth_in_progress');
       sessionStorage.removeItem('session_active');
       await supabaseClient.auth.signOut();
       console.log('✅ [Kreatorstore - Auth]: Supabase signOut completed.');
