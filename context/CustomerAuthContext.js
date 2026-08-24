@@ -27,7 +27,7 @@ export function CustomerAuthProvider({ children }) {
         .eq('id', authId)
         .maybeSingle();
 
-      if (userProfile && userProfile.role !== 'customer') {
+      if (userProfile && userProfile.role === 'admin') {
         console.log(`[Kreatorstore - CustomerAuth] User role is: ${userProfile.role}. Skipping customer profile loading.`);
         setCustomerProfile(null);
         return { success: true, profile: null };
@@ -58,10 +58,30 @@ export function CustomerAuthProvider({ children }) {
         const timeoutPromise = new Promise((_, reject) =>
           setTimeout(() => reject(new Error('TimeoutError')), 10000)
         );
-        const profileData = await Promise.race([
+        let profileData = await Promise.race([
           customerService.getCustomerProfileByAuthId(authId),
           timeoutPromise
         ]);
+        
+        if (!profileData && userObj) {
+          console.log("ℹ️ [Kreatorstore - CustomerAuth]: Customer profile not found. Auto-creating customer record for user:", userObj.email);
+          const { data: newProfile, error: insertErr } = await supabaseClient
+            .from('customers')
+            .insert([{
+              auth_id: authId,
+              full_name: userObj.user_metadata?.name || userObj.email?.split('@')[0] || 'Customer',
+              email: userObj.email,
+              phone: userObj.user_metadata?.phone || null,
+            }])
+            .select()
+            .single();
+          
+          if (!insertErr && newProfile) {
+            profileData = newProfile;
+          } else if (insertErr) {
+            console.error("❌ [Kreatorstore - CustomerAuth]: Failed to auto-create customer profile:", insertErr);
+          }
+        }
         
         setCustomerProfile(profileData || null);
         console.log("Profile fetch complete");
