@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, Suspense, useEffect } from 'react';
+import { useState, Suspense, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
@@ -25,6 +25,16 @@ function SignupContent() {
 
   const [storeDetails, setStoreDetails] = useState(null);
   const [checkingStore, setCheckingStore] = useState(false);
+
+  const redirectingRef = useRef(false);
+
+  // Prefetch the redirect target URL in the background
+  useEffect(() => {
+    if (redirect && router) {
+      console.log('⚡ [Kreatorstore - CustomerSignup]: Prefetching redirect target:', redirect);
+      router.prefetch(redirect);
+    }
+  }, [redirect, router]);
 
   useEffect(() => {
     const checkTargetStore = async () => {
@@ -56,7 +66,8 @@ function SignupContent() {
 
   // Auto-redirect if already logged in (essential for OAuth callback landing)
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && !redirectingRef.current) {
+      redirectingRef.current = true;
       console.log('✅ [Kreatorstore - CustomerSignup]: Customer is already authenticated. Redirecting to:', redirect);
       router.push(redirect);
     }
@@ -89,6 +100,7 @@ function SignupContent() {
       if (res && res.success) {
         setSuccessMsg('Account created successfully! Redirecting...');
         console.log('✅ [Kreatorstore - CustomerSignup]: Signup success. Redirecting to:', redirect);
+        redirectingRef.current = true;
         setTimeout(() => {
           router.push(redirect);
         }, 1500);
