@@ -28,13 +28,13 @@ function AddProductFormContent() {
     og_title: '',
     og_description: '',
     canonical_url: '',
-    spec_dimensions: 'Standard size',
-    spec_material: 'Premium sustainably sourced materials',
-    spec_finish: 'Satin matte protective coating',
-    spec_warranty: '2 Year Manufacturer Warranty',
-    spec_origin: 'Designed & Crafted locally',
-    shipping_details: 'Secure & Swift Logistics\n\nAll orders are processed and handed over to standard premium courier networks within 24 hours of confirmation.\n\n- Standard Shipping: Delivered in 3-5 business days. Free for this product.\n- Express Shipping: Delivered in 1-2 business days (if selected at checkout).\n- Transit Safety: Fully insured shipments with custom packaging to prevent breakages.',
-    return_policy: '7-Day Return & Replacement Policy\n\nWe stand behind the craftsmanship of our products. If you are not completely satisfied, we offer a hassle-free return window.\n\n- Items must be returned in their original packaging and unused condition.\n- Refunds are processed to the original payment source within 3-5 days after warehouse validation.\n- In case of manufacturing defects, contact our support with unboxing images for instant replacements.'
+    spec_dimensions: '',
+    spec_material: '',
+    spec_finish: '',
+    spec_warranty: '',
+    spec_origin: '',
+    shipping_details: '',
+    return_policy: ''
   });
 
   const imageInputRef = useRef(null);
@@ -394,7 +394,7 @@ function AddProductFormContent() {
               <label>Dimensions</label>
               <input 
                 type="text" 
-                placeholder="e.g. Standard size, 55cm x 55cm x 85cm" 
+                placeholder="e.g. Standard size" 
                 value={formData.spec_dimensions}
                 onChange={(e) => setFormData({...formData, spec_dimensions: e.target.value})}
               />
@@ -403,7 +403,7 @@ function AddProductFormContent() {
               <label>Material</label>
               <input 
                 type="text" 
-                placeholder="e.g. Solid Oak Wood & Premium Fabric" 
+                placeholder="e.g. Premium sustainably sourced materials" 
                 value={formData.spec_material}
                 onChange={(e) => setFormData({...formData, spec_material: e.target.value})}
               />
@@ -433,7 +433,7 @@ function AddProductFormContent() {
               <label>Origin</label>
               <input 
                 type="text" 
-                placeholder="e.g. Handcrafted in India" 
+                placeholder="e.g. Designed & Crafted locally" 
                 value={formData.spec_origin}
                 onChange={(e) => setFormData({...formData, spec_origin: e.target.value})}
               />
@@ -443,7 +443,13 @@ function AddProductFormContent() {
           <div className="form-group" style={{ marginTop: '8px' }}>
             <label>Shipping Details (Custom text or list)</label>
             <textarea 
-              placeholder="Enter standard shipping policies, delivery timelines, carrier specifications..." 
+              placeholder={`e.g. Secure & Swift Logistics
+
+All orders are processed and handed over to standard premium courier networks within 24 hours of confirmation.
+
+- Standard Shipping: Delivered in 3-5 business days. Free for this product.
+- Express Shipping: Delivered in 1-2 business days (if selected at checkout).
+- Transit Safety: Fully insured shipments with custom packaging to prevent breakages.`} 
               rows="8"
               value={formData.shipping_details}
               onChange={(e) => setFormData({...formData, shipping_details: e.target.value})}
@@ -453,7 +459,13 @@ function AddProductFormContent() {
           <div className="form-group" style={{ marginTop: '8px' }}>
             <label>Return Policy (Custom text or list)</label>
             <textarea 
-              placeholder="Enter refund windows, item condition requirements, defect policies..." 
+              placeholder={`e.g. 7-Day Return & Replacement Policy
+
+We stand behind the craftsmanship of our products. If you are not completely satisfied, we offer a hassle-free return window.
+
+- Items must be returned in their original packaging and unused condition.
+- Refunds are processed to the original payment source within 3-5 days after warehouse validation.
+- In case of manufacturing defects, contact our support with unboxing images for instant replacements.`} 
               rows="8"
               value={formData.return_policy}
               onChange={(e) => setFormData({...formData, return_policy: e.target.value})}
