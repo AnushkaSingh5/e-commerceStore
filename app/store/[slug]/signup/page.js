@@ -23,6 +23,7 @@ export default function StoreSignupPage({ params }) {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [storeDetails, setStoreDetails] = useState(null);
@@ -42,6 +43,7 @@ export default function StoreSignupPage({ params }) {
   useEffect(() => {
     if (customer && !redirectingRef.current) {
       redirectingRef.current = true;
+      setIsRedirecting(true);
       console.log('✅ [Kreatorstore - StoreSignupPage]: Customer is already authenticated. Redirecting to:', redirect);
       router.push(redirect);
     }
@@ -62,6 +64,10 @@ export default function StoreSignupPage({ params }) {
     fetchStore();
   }, [slug]);
 
+  if (isRedirecting) {
+    return <PageLoader />;
+  }
+
   const handleSignup = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -75,6 +81,7 @@ export default function StoreSignupPage({ params }) {
       console.log('✅ [Kreatorstore - StoreSignupPage]: Customer signup and auto-login successful.');
       setSuccessMsg('Account created successfully! Redirecting...');
       redirectingRef.current = true;
+      setIsRedirecting(true);
       setTimeout(() => {
         router.push(redirect);
       }, 1000);
@@ -95,10 +102,12 @@ export default function StoreSignupPage({ params }) {
         : (process.env.NEXT_PUBLIC_BASE_URL || 'https://kreatorstore.in');
       const callbackUrl = `${origin}/customer/login?redirect=${encodeURIComponent(redirect)}`;
       console.log(`🔄 [Kreatorstore - StoreSignupPage]: Triggering OAuth signup for ${provider} with callback ${callbackUrl}`);
+      setIsRedirecting(true);
       await loginWithProvider(provider, callbackUrl);
     } catch (err) {
       console.error(`❌ [Kreatorstore - StoreSignupPage]: ${provider} OAuth error:`, err);
       setErrorMsg(err.message || `Failed to sign up with ${provider}.`);
+      setIsRedirecting(false);
     }
   };
 

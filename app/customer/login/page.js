@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { storeService } from '@/services/storeService';
 import StoreUnderReview from '@/components/StoreUnderReview';
+import PageLoader from '@/components/PageLoader';
 import { demoStores } from '@/lib/demoData';
 
 function LoginContent() {
@@ -30,6 +31,7 @@ function LoginContent() {
   
   // General states
   const [loading, setLoading] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [storeDetails, setStoreDetails] = useState(null);
@@ -73,15 +75,13 @@ function LoginContent() {
   // Calculate back URL to return to the active store instead of the root landing page
   const backUrl = redirect && (redirect.startsWith('/store/') || redirect.startsWith('/demo-store/')) ? redirect : '/';
 
-  console.log(`[AUTH DEBUG] [H] redirect parameter was read: "${redirect}" at ${performance.now()} ms`);
-
   // Auto-redirect if already logged in (essential for OAuth callback landing)
   useEffect(() => {
     if (isAuthenticated && !redirectingRef.current) {
       redirectingRef.current = true;
-      console.log(`[AUTH DEBUG] [I] router.push() called (auto-redirect) to "${redirect}" at ${performance.now()} ms`);
+      setIsRedirecting(true);
+      console.log('✅ [Kreatorstore - CustomerLogin]: Customer is already authenticated. Redirecting to:', redirect);
       router.push(redirect);
-      console.log(`[AUTH DEBUG] [J] navigation actually started (auto-redirect) at ${performance.now()} ms`);
     }
   }, [isAuthenticated, redirect, router]);
 
@@ -91,6 +91,10 @@ function LoginContent() {
       setActiveTab(method);
     }
   }, [method]);
+
+  if (isRedirecting) {
+    return <PageLoader />;
+  }
 
   if (checkingStore) {
     return <div className="loading-text">Verifying store details...</div>;
@@ -103,7 +107,6 @@ function LoginContent() {
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    console.log(`[AUTH DEBUG] [A] Sign In button clicked: ${performance.now()} ms`);
     setLoading(true);
     setErrorMsg('');
     setSuccessMsg('');
@@ -112,9 +115,9 @@ function LoginContent() {
       const res = await login(email, password);
       if (res && res.success) {
         redirectingRef.current = true;
-        console.log(`[AUTH DEBUG] [I] router.push() called (handleLogin) to "${redirect}" at ${performance.now()} ms`);
+        setIsRedirecting(true);
+        console.log('✅ [Kreatorstore - CustomerLogin]: Login success. Redirecting to:', redirect);
         router.push(redirect);
-        console.log(`[AUTH DEBUG] [J] navigation actually started (handleLogin) at ${performance.now()} ms`);
       } else {
         setLoading(false);
       }
@@ -167,6 +170,8 @@ function LoginContent() {
       if (res && res.success) {
         setSuccessMsg('Verification successful! Logging in...');
         console.log('✅ [Kreatorstore - CustomerLogin]: OTP Login success. Redirecting to:', redirect);
+        redirectingRef.current = true;
+        setIsRedirecting(true);
         router.push(redirect);
       } else {
         setLoading(false);
@@ -187,10 +192,12 @@ function LoginContent() {
         : (process.env.NEXT_PUBLIC_BASE_URL || 'https://kreatorstore.in');
       const callbackUrl = `${origin}/customer/login?redirect=${encodeURIComponent(redirect)}`;
       console.log(`🔄 [Kreatorstore - CustomerLogin]: Triggering OAuth login for ${provider} with callback ${callbackUrl}`);
+      setIsRedirecting(true);
       await loginWithProvider(provider, callbackUrl);
     } catch (err) {
       console.error(`❌ [Kreatorstore - CustomerLogin]: ${provider} OAuth error:`, err);
       setErrorMsg(err.message || `Failed to sign in with ${provider}.`);
+      setIsRedirecting(false);
     }
   };
 

@@ -12,14 +12,6 @@ export function CustomerAuthProvider({ children }) {
   const [customer, setCustomer] = useState(null);
   const [customerProfile, setCustomerProfile] = useState(null);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    console.log(`[AUTH DEBUG] [F] CustomerAuthContext user state changed: customer=${customer ? customer.id : 'null'} at ${performance.now()} ms`);
-  }, [customer]);
-
-  useEffect(() => {
-    console.log(`[AUTH DEBUG] [G] loading/auth-loading state changed: loading=${loading} at ${performance.now()} ms`);
-  }, [loading]);
   
   const initialSessionLoadedRef = useRef(false);
 
@@ -222,7 +214,6 @@ export function CustomerAuthProvider({ children }) {
 
     // Listen to Supabase Auth State Changes
     const { data: { subscription } } = supabaseClient.auth.onAuthStateChange((event, session) => {
-      console.log(`[AUTH DEBUG] [E] onAuthStateChange fired: event="${event}" at ${performance.now()} ms`);
       setTimeout(async () => {
         if (!isSubscribed) return;
 
@@ -267,7 +258,6 @@ export function CustomerAuthProvider({ children }) {
 
   const login = async (email, password) => {
     if (!supabaseClient) throw new Error('Supabase client is not initialized.');
-    console.log(`[AUTH DEBUG] [B] signInWithPassword() started for ${email} at ${performance.now()} ms`);
     setLoading(true);
     startLoading();
     try {
@@ -275,12 +265,7 @@ export function CustomerAuthProvider({ children }) {
         email,
         password,
       });
-      console.log(`[AUTH DEBUG] [C] signInWithPassword() returned at ${performance.now()} ms`);
-      if (error) {
-        console.log(`[AUTH DEBUG] [D] Supabase returned an error: ${error.message} at ${performance.now()} ms`);
-        throw error;
-      }
-      console.log(`[AUTH DEBUG] [D] Supabase returned a successful session for user ${data.user.id} at ${performance.now()} ms`);
+      if (error) throw error;
 
       const isCustomerRole = data.user.user_metadata?.role === 'customer' || data.user.app_metadata?.role === 'customer';
       if (isCustomerRole) {

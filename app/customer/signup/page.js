@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { storeService } from '@/services/storeService';
 import StoreUnderReview from '@/components/StoreUnderReview';
+import PageLoader from '@/components/PageLoader';
 import { demoStores } from '@/lib/demoData';
 
 function SignupContent() {
@@ -20,6 +21,7 @@ function SignupContent() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
@@ -68,10 +70,15 @@ function SignupContent() {
   useEffect(() => {
     if (isAuthenticated && !redirectingRef.current) {
       redirectingRef.current = true;
+      setIsRedirecting(true);
       console.log('✅ [Kreatorstore - CustomerSignup]: Customer is already authenticated. Redirecting to:', redirect);
       router.push(redirect);
     }
   }, [isAuthenticated, redirect, router]);
+
+  if (isRedirecting) {
+    return <PageLoader />;
+  }
 
   if (checkingStore) {
     return <div className="loading-text">Verifying store details...</div>;
@@ -101,6 +108,7 @@ function SignupContent() {
         setSuccessMsg('Account created successfully! Redirecting...');
         console.log('✅ [Kreatorstore - CustomerSignup]: Signup success. Redirecting to:', redirect);
         redirectingRef.current = true;
+        setIsRedirecting(true);
         setTimeout(() => {
           router.push(redirect);
         }, 1500);
@@ -122,10 +130,12 @@ function SignupContent() {
         : (process.env.NEXT_PUBLIC_BASE_URL || 'https://kreatorstore.in');
       const callbackUrl = `${origin}/customer/login?redirect=${encodeURIComponent(redirect)}`;
       console.log(`🔄 [Kreatorstore - CustomerSignup]: Triggering OAuth signup for ${provider} with callback ${callbackUrl}`);
+      setIsRedirecting(true);
       await loginWithProvider(provider, callbackUrl);
     } catch (err) {
       console.error(`❌ [Kreatorstore - CustomerSignup]: ${provider} OAuth error:`, err);
       setErrorMsg(err.message || `Failed to sign up with ${provider}.`);
+      setIsRedirecting(false);
     }
   };
 

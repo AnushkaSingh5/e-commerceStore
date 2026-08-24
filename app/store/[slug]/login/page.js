@@ -21,6 +21,7 @@ export default function StoreLoginPage({ params }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [storeDetails, setStoreDetails] = useState(null);
   const { customer, login, loginWithProvider, loading: authLoading } = useCustomerAuth();
@@ -39,6 +40,7 @@ export default function StoreLoginPage({ params }) {
   useEffect(() => {
     if (customer && !redirectingRef.current) {
       redirectingRef.current = true;
+      setIsRedirecting(true);
       console.log('✅ [Kreatorstore - StoreLoginPage]: Customer is already authenticated. Redirecting to:', redirect);
       router.push(redirect);
     }
@@ -59,6 +61,10 @@ export default function StoreLoginPage({ params }) {
     fetchStore();
   }, [slug]);
 
+  if (isRedirecting) {
+    return <PageLoader />;
+  }
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -71,6 +77,7 @@ export default function StoreLoginPage({ params }) {
       console.log('✅ [Kreatorstore - StoreLoginPage]: SignIn response success. Redirecting to:', redirect);
       console.log("Navigation triggered");
       redirectingRef.current = true;
+      setIsRedirecting(true);
       router.push(redirect);
     } catch (err) {
       console.error('❌ [Kreatorstore - StoreLoginPage]: Login error:', err);
@@ -88,10 +95,12 @@ export default function StoreLoginPage({ params }) {
         : (process.env.NEXT_PUBLIC_BASE_URL || 'https://kreatorstore.in');
       const callbackUrl = `${origin}/customer/login?redirect=${encodeURIComponent(redirect)}`;
       console.log(`🔄 [Kreatorstore - StoreLoginPage]: Triggering OAuth login for ${provider} with callback ${callbackUrl}`);
+      setIsRedirecting(true);
       await loginWithProvider(provider, callbackUrl);
     } catch (err) {
       console.error(`❌ [Kreatorstore - StoreLoginPage]: ${provider} OAuth error:`, err);
       setErrorMsg(err.message || `Failed to sign in with ${provider}.`);
+      setIsRedirecting(false);
     }
   };
 
