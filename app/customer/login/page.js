@@ -98,11 +98,12 @@ function LoginContent() {
       if (res && res.success) {
         console.log('✅ [Kreatorstore - CustomerLogin]: Login success. Redirecting to:', redirect);
         router.push(redirect);
+      } else {
+        setLoading(false);
       }
     } catch (err) {
       console.error('❌ [Kreatorstore - CustomerLogin]: Login error:', err);
       setErrorMsg(err.message || 'Invalid email or password.');
-    } finally {
       setLoading(false);
     }
   };
@@ -150,11 +151,12 @@ function LoginContent() {
         setSuccessMsg('Verification successful! Logging in...');
         console.log('✅ [Kreatorstore - CustomerLogin]: OTP Login success. Redirecting to:', redirect);
         router.push(redirect);
+      } else {
+        setLoading(false);
       }
     } catch (err) {
       console.error('❌ [Kreatorstore - CustomerLogin]: Verify OTP error:', err);
       setErrorMsg(err.message || 'Verification failed. Invalid or expired code.');
-    } finally {
       setLoading(false);
     }
   };
@@ -165,7 +167,7 @@ function LoginContent() {
     try {
       const origin = window.location.hostname === 'localhost'
         ? window.location.origin
-        : 'https://e-commerce-store-lemon-three.vercel.app';
+        : (process.env.NEXT_PUBLIC_BASE_URL || 'https://kreatorstore.in');
       const callbackUrl = `${origin}/customer/login?redirect=${encodeURIComponent(redirect)}`;
       console.log(`🔄 [Kreatorstore - CustomerLogin]: Triggering OAuth login for ${provider} with callback ${callbackUrl}`);
       await loginWithProvider(provider, callbackUrl);

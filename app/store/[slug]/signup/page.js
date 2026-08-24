@@ -61,7 +61,6 @@ export default function StoreSignupPage({ params }) {
     } catch (err) {
       console.error('❌ [Kreatorstore - StoreSignupPage]: Signup error:', err);
       setErrorMsg(err.message || 'Failed to register account. Please try again.');
-    } finally {
       setLoading(false);
       completeLoading();
     }
@@ -73,7 +72,7 @@ export default function StoreSignupPage({ params }) {
     try {
       const origin = window.location.hostname === 'localhost'
         ? window.location.origin
-        : 'https://e-commerce-store-lemon-three.vercel.app';
+        : (process.env.NEXT_PUBLIC_BASE_URL || 'https://kreatorstore.in');
       const callbackUrl = `${origin}/customer/login?redirect=${encodeURIComponent(redirect)}`;
       console.log(`🔄 [Kreatorstore - StoreSignupPage]: Triggering OAuth signup for ${provider} with callback ${callbackUrl}`);
       await loginWithProvider(provider, callbackUrl);

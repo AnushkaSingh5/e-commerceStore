@@ -92,11 +92,12 @@ function SignupContent() {
         setTimeout(() => {
           router.push(redirect);
         }, 1500);
+      } else {
+        setLoading(false);
       }
     } catch (err) {
       console.error('❌ [Kreatorstore - CustomerSignup]: Signup error:', err);
       setErrorMsg(err.message || 'Failed to create account. Please try again.');
-    } finally {
       setLoading(false);
     }
   };
@@ -106,7 +107,7 @@ function SignupContent() {
     try {
       const origin = window.location.hostname === 'localhost'
         ? window.location.origin
-        : 'https://e-commerce-store-lemon-three.vercel.app';
+        : (process.env.NEXT_PUBLIC_BASE_URL || 'https://kreatorstore.in');
       const callbackUrl = `${origin}/customer/login?redirect=${encodeURIComponent(redirect)}`;
       console.log(`🔄 [Kreatorstore - CustomerSignup]: Triggering OAuth signup for ${provider} with callback ${callbackUrl}`);
       await loginWithProvider(provider, callbackUrl);

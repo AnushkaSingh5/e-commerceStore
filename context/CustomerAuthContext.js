@@ -18,23 +18,15 @@ export function CustomerAuthProvider({ children }) {
   const checkIsActiveSeller = async (userId) => {
     if (!supabaseClient) return false;
     try {
-      const { data: sellerData } = await supabaseClient
-        .from('sellers')
-        .select('onboarding_completed')
-        .eq('id', userId)
-        .maybeSingle();
+      const [sellerRes, storeRes] = await Promise.all([
+        supabaseClient.from('sellers').select('onboarding_completed').eq('id', userId).maybeSingle(),
+        supabaseClient.from('stores').select('id').eq('creator_id', userId).maybeSingle()
+      ]);
       
-      if (sellerData && sellerData.onboarding_completed) {
+      if (sellerRes.data && sellerRes.data.onboarding_completed) {
         return true;
       }
-      
-      const { data: storeData } = await supabaseClient
-        .from('stores')
-        .select('id')
-        .eq('creator_id', userId)
-        .maybeSingle();
-        
-      if (storeData) {
+      if (storeRes.data) {
         return true;
       }
     } catch (e) {
@@ -61,8 +53,8 @@ export function CustomerAuthProvider({ children }) {
         return { success: true, profile: null };
       }
 
-      const isActiveSeller = await checkIsActiveSeller(authId);
       if (userProfile && userProfile.role === 'creator') {
+        const isActiveSeller = await checkIsActiveSeller(authId);
         if (isActiveSeller) {
           console.log(`[Kreatorstore - CustomerAuth] User is an active seller. Keeping database role as creator.`);
           // Check if they explicitly logged in as customer on storefront
@@ -275,6 +267,18 @@ export function CustomerAuthProvider({ children }) {
       });
       if (error) throw error;
 
+      const isCustomerRole = data.user.user_metadata?.role === 'customer' || data.user.app_metadata?.role === 'customer';
+      if (isCustomerRole) {
+        console.log("⚡ [Kreatorstore - CustomerAuth]: User has customer role in metadata. Logging in instantly.");
+        localStorage.setItem('customer_user_id', data.user.id);
+        setCustomer(data.user);
+        // Fetch profile details in background
+        fetchCustomerProfile(data.user.id, data.user, true).catch(err => {
+          console.warn("Background customer profile fetch failed:", err);
+        });
+        return { success: true };
+      }
+
       // Verify the user is a registered customer
       const result = await fetchCustomerProfile(data.user.id, data.user, true);
       if (result && result.success && !result.profile) {
@@ -357,33 +361,30 @@ export function CustomerAuthProvider({ children }) {
         }
       }
 
-      // 2. Fetch customer profile or wait for handle_new_user trigger
-      let profileData = null;
-      let retries = 5;
-      while (retries > 0) {
-        const profile = await customerService.getCustomerProfileByAuthId(user.id);
-        if (profile) {
-          profileData = profile;
-          break;
-        }
-        await new Promise(resolve => setTimeout(resolve, 300));
-        retries--;
-      }
+      // 2. Fetch customer profile or fallback to manual creation without blocking sleeps
+      let profileData = await customerService.getCustomerProfileByAuthId(user.id);
 
       // 3. Fallback: manual insert of customer record if trigger is slow or not set up
       if (!profileData) {
-        const { data: newProfile, error: insertErr } = await supabaseClient
-          .from('customers')
-          .insert([{
-            auth_id: user.id,
-            full_name: fullName,
-            email: email,
-            phone: phone,
-          }])
-          .select()
-          .single();
-        if (insertErr) throw insertErr;
-        profileData = newProfile;
+        try {
+          const { data: newProfile, error: insertErr } = await supabaseClient
+            .from('customers')
+            .insert([{
+              auth_id: user.id,
+              full_name: fullName,
+              email: email,
+              phone: phone,
+            }])
+            .select()
+            .single();
+          if (!insertErr && newProfile) {
+            profileData = newProfile;
+          }
+        } catch (err) {
+          // If trigger created it concurrently, retrieve it
+          profileData = await customerService.getCustomerProfileByAuthId(user.id);
+          if (!profileData) throw err;
+        }
       }
 
       localStorage.setItem('customer_user_id', user.id);
@@ -496,6 +497,18 @@ export function CustomerAuthProvider({ children }) {
       if (error) throw error;
 
       // Verify customer record
+      const isCustomerRole = data.user.user_metadata?.role === 'customer' || data.user.app_metadata?.role === 'customer';
+      if (isCustomerRole) {
+        console.log("⚡ [Kreatorstore - CustomerAuth]: User has customer role in metadata. Verifying OTP instantly.");
+        localStorage.setItem('customer_user_id', data.user.id);
+        setCustomer(data.user);
+        // Fetch profile details in background
+        fetchCustomerProfile(data.user.id, data.user, true).catch(err => {
+          console.warn("Background customer profile fetch failed:", err);
+        });
+        return { success: true, user: data.user, profile: null };
+      }
+
       const profileData = await fetchCustomerProfile(data.user.id, data.user, true);
       localStorage.setItem('customer_user_id', data.user.id);
       setCustomer(data.user);
