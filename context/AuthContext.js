@@ -68,6 +68,15 @@ export function AuthProvider({ children }) {
         if (response.ok) {
           const profs = await response.json();
           if (profs && profs.length > 0) {
+            if (profs[0].role === 'customer') {
+              console.log("🔔 [Kreatorstore - Auth]: fetchProfileOnly detected customer role. Ignoring in Creator context.");
+              setSession(null);
+              setUser(null);
+              setProfile(null);
+              setRole(null);
+              setStoreLoading(false);
+              return;
+            }
             setProfile(profs[0]);
             setRole(profs[0].role);
             console.log("Profile fetch complete");

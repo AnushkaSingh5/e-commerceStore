@@ -15,6 +15,34 @@ export function CustomerAuthProvider({ children }) {
   
   const initialSessionLoadedRef = useRef(false);
 
+  const checkIsActiveSeller = async (userId) => {
+    if (!supabaseClient) return false;
+    try {
+      const { data: sellerData } = await supabaseClient
+        .from('sellers')
+        .select('onboarding_completed')
+        .eq('id', userId)
+        .maybeSingle();
+      
+      if (sellerData && sellerData.onboarding_completed) {
+        return true;
+      }
+      
+      const { data: storeData } = await supabaseClient
+        .from('stores')
+        .select('id')
+        .eq('creator_id', userId)
+        .maybeSingle();
+        
+      if (storeData) {
+        return true;
+      }
+    } catch (e) {
+      console.warn('Error checking if active seller:', e);
+    }
+    return false;
+  };
+
   // Fetch customer profile from public.customers using auth UID
   const fetchCustomerProfile = async (authId, userObject = null) => {
     if (!supabaseClient) return null;
@@ -31,6 +59,19 @@ export function CustomerAuthProvider({ children }) {
         console.log(`[Kreatorstore - CustomerAuth] User role is: ${userProfile.role}. Skipping customer profile loading.`);
         setCustomerProfile(null);
         return { success: true, profile: null };
+      }
+
+      const isActiveSeller = await checkIsActiveSeller(authId);
+      if (userProfile && userProfile.role === 'creator') {
+        if (isActiveSeller) {
+          console.log(`[Kreatorstore - CustomerAuth] User is an active seller. Keeping database role as creator.`);
+        } else {
+          console.log(`[Kreatorstore - CustomerAuth] User is a new signup/un-onboarded user defaulted to creator. Updating role to customer.`);
+          await supabaseClient
+            .from('profiles')
+            .update({ role: 'customer' })
+            .eq('id', authId);
+        }
       }
     } catch (e) {
       console.warn('[Kreatorstore - CustomerAuth] Failed to pre-check user profile role:', e);
