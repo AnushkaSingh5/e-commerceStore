@@ -12,12 +12,20 @@ import { demoStores } from '@/lib/demoData';
 function SignupContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const rawRedirect = searchParams.get('redirect') || '/store/customer';
-  
-  // Validate redirect to prevent open redirect vulnerabilities
-  const redirect = rawRedirect.startsWith('/') && !rawRedirect.startsWith('//')
-    ? rawRedirect
-    : '/store/customer';
+  const [redirectPath, setRedirectPath] = useState('/store/customer');
+
+  useEffect(() => {
+    const urlRedirect = searchParams.get('redirect');
+    if (urlRedirect && urlRedirect.startsWith('/') && !urlRedirect.startsWith('//')) {
+      setRedirectPath(urlRedirect);
+      localStorage.setItem('customer_oauth_redirect', urlRedirect);
+    } else {
+      const savedRedirect = localStorage.getItem('customer_oauth_redirect');
+      if (savedRedirect && savedRedirect.startsWith('/') && !savedRedirect.startsWith('//')) {
+        setRedirectPath(savedRedirect);
+      }
+    }
+  }, [searchParams]);
 
   const { signup, loginWithProvider, isAuthenticated, loading: authLoading } = useCustomerAuth();
 
@@ -38,15 +46,14 @@ function SignupContent() {
 
   // Prefetch the redirect target URL in the background
   useEffect(() => {
-    if (redirect && router) {
-      console.log('⚡ [Kreatorstore - CustomerSignup]: Prefetching redirect target:', redirect);
-      router.prefetch(redirect);
+    if (redirectPath && router) {
+      console.log('⚡ [Kreatorstore - CustomerSignup]: Prefetching redirect target:', redirectPath);
+      router.prefetch(redirectPath);
     }
-  }, [redirect, router]);
+  }, [redirectPath, router]);
 
   useEffect(() => {
     const checkTargetStore = async () => {
-      const redirectPath = redirect || '';
       if (redirectPath.startsWith('/store/') || redirectPath.startsWith('/demo-store/')) {
         const slug = redirectPath.split('/')[2];
         if (slug) {
@@ -67,20 +74,21 @@ function SignupContent() {
       }
     };
     checkTargetStore();
-  }, [redirect]);
+  }, [redirectPath]);
 
   // Calculate back URL to return to the active store instead of the root landing page
-  const backUrl = redirect && (redirect.startsWith('/store/') || redirect.startsWith('/demo-store/')) ? redirect : '/';
+  const backUrl = redirectPath && (redirectPath.startsWith('/store/') || redirectPath.startsWith('/demo-store/')) ? redirectPath : '/';
 
   // Auto-redirect if already logged in (essential for OAuth callback landing)
   useEffect(() => {
     if (isAuthenticated && !redirectingRef.current) {
       redirectingRef.current = true;
       setIsRedirecting(true);
-      console.log('✅ [Kreatorstore - CustomerSignup]: Customer is already authenticated. Redirecting to:', redirect);
-      router.push(redirect);
+      console.log('✅ [Kreatorstore - CustomerSignup]: Customer is already authenticated. Redirecting to:', redirectPath);
+      localStorage.removeItem('customer_oauth_redirect');
+      router.push(redirectPath);
     }
-  }, [isAuthenticated, redirect, router]);
+  }, [isAuthenticated, redirectPath, router]);
 
   if (authLoading || isRedirecting) {
     return <PageLoader />;
@@ -113,15 +121,16 @@ function SignupContent() {
       const origin = typeof window !== 'undefined'
         ? window.location.origin
         : (process.env.NEXT_PUBLIC_BASE_URL || 'https://www.kreatorstore.in');
-      const emailRedirectTo = `${origin}/customer/login?redirect=${encodeURIComponent(redirect)}`;
+      const emailRedirectTo = `${origin}/customer/login?redirect=${encodeURIComponent(redirectPath)}`;
 
       const res = await signup(email, password, fullName, phone, emailRedirectTo);
       if (res && res.success) {
         setSuccessMsg('Account created successfully! Redirecting...');
-        console.log('✅ [Kreatorstore - CustomerSignup]: Signup success. Redirecting to:', redirect);
+        console.log('✅ [Kreatorstore - CustomerSignup]: Signup success. Redirecting to:', redirectPath);
         redirectingRef.current = true;
         setIsRedirecting(true);
-        router.push(redirect);
+        localStorage.removeItem('customer_oauth_redirect');
+        router.push(redirectPath);
       } else {
         setLoading(false);
       }
@@ -138,9 +147,10 @@ function SignupContent() {
       const origin = window.location.hostname === 'localhost'
         ? window.location.origin
         : (process.env.NEXT_PUBLIC_BASE_URL || 'https://www.kreatorstore.in');
-      const callbackUrl = `${origin}/customer/login?redirect=${encodeURIComponent(redirect)}`;
+      const callbackUrl = `${origin}/customer/login`;
       console.log(`🔄 [Kreatorstore - CustomerSignup]: Triggering OAuth signup for ${provider} with callback ${callbackUrl}`);
       setIsRedirecting(true);
+      localStorage.setItem('customer_oauth_redirect', redirectPath);
       await loginWithProvider(provider, callbackUrl);
     } catch (err) {
       console.error(`❌ [Kreatorstore - CustomerSignup]: ${provider} OAuth error:`, err);
@@ -152,7 +162,7 @@ function SignupContent() {
   return (
     <div className="signup-card dashboard-card fade-in">
       <Link href={backUrl} className="back-link">
-        {redirect && (redirect.startsWith('/store/') || redirect.startsWith('/demo-store/')) ? '← Back to store' : '← Back to homepage'}
+        {redirectPath && (redirectPath.startsWith('/store/') || redirectPath.startsWith('/demo-store/')) ? '← Back to store' : '← Back to homepage'}
       </Link>
 
       <div className="brand-header">

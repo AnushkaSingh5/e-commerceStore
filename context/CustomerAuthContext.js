@@ -187,8 +187,9 @@ export function CustomerAuthProvider({ children }) {
 
       try {
         if (activeSession && activeSession.user && isSubscribed) {
-          const isCustomerRole = activeSession.user.user_metadata?.role === 'customer' || activeSession.user.app_metadata?.role === 'customer';
-          if (isCustomerRole) {
+          const metadataRole = activeSession.user.user_metadata?.role || activeSession.user.app_metadata?.role;
+          const isCreatorOrAdmin = metadataRole === 'creator' || metadataRole === 'admin';
+          if (!isCreatorOrAdmin) {
             setCustomer(activeSession.user);
             const result = await fetchCustomerProfile(activeSession.user.id, activeSession.user);
             if (!result || !result.success || !result.profile) {
@@ -233,8 +234,9 @@ export function CustomerAuthProvider({ children }) {
 
         try {
           if (session && session.user) {
-            const isCustomerRole = session.user.user_metadata?.role === 'customer' || session.user.app_metadata?.role === 'customer';
-            if (isCustomerRole) {
+            const metadataRole = session.user.user_metadata?.role || session.user.app_metadata?.role;
+            const isCreatorOrAdmin = metadataRole === 'creator' || metadataRole === 'admin';
+            if (!isCreatorOrAdmin) {
               setCustomer(session.user);
               const result = await fetchCustomerProfile(session.user.id, session.user);
               if (!result || !result.success || !result.profile) {
