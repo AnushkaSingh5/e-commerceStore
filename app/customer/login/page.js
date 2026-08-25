@@ -18,12 +18,6 @@ function LoginContent() {
     const urlRedirect = searchParams.get('redirect');
     if (urlRedirect && urlRedirect.startsWith('/') && !urlRedirect.startsWith('//')) {
       setRedirectPath(urlRedirect);
-      localStorage.setItem('customer_oauth_redirect', urlRedirect);
-    } else {
-      const savedRedirect = localStorage.getItem('customer_oauth_redirect');
-      if (savedRedirect && savedRedirect.startsWith('/') && !savedRedirect.startsWith('//')) {
-        setRedirectPath(savedRedirect);
-      }
     }
   }, [searchParams]);
 
@@ -94,7 +88,6 @@ function LoginContent() {
       redirectingRef.current = true;
       setIsRedirecting(true);
       console.log('✅ [Kreatorstore - CustomerLogin]: Customer is already authenticated. Redirecting to:', redirectPath);
-      localStorage.removeItem('customer_oauth_redirect');
       router.push(redirectPath);
     }
   }, [isAuthenticated, redirectPath, router]);
@@ -131,7 +124,6 @@ function LoginContent() {
         redirectingRef.current = true;
         setIsRedirecting(true);
         console.log('✅ [Kreatorstore - CustomerLogin]: Login success. Redirecting to:', redirectPath);
-        localStorage.removeItem('customer_oauth_redirect');
         router.push(redirectPath);
       } else {
         setLoading(false);
@@ -187,7 +179,6 @@ function LoginContent() {
         console.log('✅ [Kreatorstore - CustomerLogin]: OTP Login success. Redirecting to:', redirectPath);
         redirectingRef.current = true;
         setIsRedirecting(true);
-        localStorage.removeItem('customer_oauth_redirect');
         router.push(redirectPath);
       } else {
         setLoading(false);
@@ -198,7 +189,7 @@ function LoginContent() {
       setLoading(false);
     }
   };
-
+ 
   const handleSocialLogin = async (provider) => {
     setErrorMsg('');
     setSuccessMsg('');
@@ -206,10 +197,9 @@ function LoginContent() {
       const origin = window.location.hostname === 'localhost'
         ? window.location.origin
         : (process.env.NEXT_PUBLIC_BASE_URL || 'https://www.kreatorstore.in');
-      const callbackUrl = `${origin}/customer/login`;
+      const callbackUrl = `${origin}/auth/callback?next=${encodeURIComponent(redirectPath)}`;
       console.log(`🔄 [Kreatorstore - CustomerLogin]: Triggering OAuth login for ${provider} with callback ${callbackUrl}`);
       setIsRedirecting(true);
-      localStorage.setItem('customer_oauth_redirect', redirectPath);
       await loginWithProvider(provider, callbackUrl);
     } catch (err) {
       console.error(`❌ [Kreatorstore - CustomerLogin]: ${provider} OAuth error:`, err);
