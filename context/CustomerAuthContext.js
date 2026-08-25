@@ -324,6 +324,7 @@ export function CustomerAuthProvider({ children }) {
         };
         if (emailRedirectTo) {
           signUpOptions.emailRedirectTo = emailRedirectTo;
+          signUpOptions.redirectTo = emailRedirectTo;
         }
         const res = await supabaseClient.auth.signUp({
           email,

@@ -1,5 +1,6 @@
 import { orderService } from './orderService';
 import { supabaseClient } from '@/lib/supabase';
+import { shippingService } from './shipping/shippingService';
 
 export const checkoutService = {
   /**
@@ -118,8 +119,22 @@ export const checkoutService = {
           if (shippingType === 'flat') {
             shippingCost = flatFee;
           } else if (shippingType === 'calculated') {
-            const totalItems = items.reduce((sum, item) => sum + item.quantity, 0);
-            shippingCost = 40 + (totalItems * 10);
+            try {
+              const res = await shippingService.calculateShippingCost({
+                storeId,
+                destinationPincode: customerInfo.pincode,
+                paymentMode: customerInfo.payment_provider === 'COD' ? 'COD' : 'Prepaid',
+                cartItems: items
+              });
+              if (res && res.success) {
+                shippingCost = res.total_amount;
+              } else {
+                throw new Error('Failed to calculate shipping rate.');
+              }
+            } catch (err) {
+              console.error('❌ [checkoutService] Calculated shipping failed:', err.message);
+              throw new Error(`Shipping calculation error: ${err.message}`);
+            }
           } else {
             shippingCost = 0;
           }

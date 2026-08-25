@@ -816,4 +816,115 @@ export class DelhiveryProvider {
       throw e;
     }
   }
+
+  /**
+   * Calculate shipping cost using Delhivery charges API
+   */
+  async calculateShippingCost(originPincode, destinationPincode, weightInGrams, paymentMode = 'Prepaid') {
+    const cleanOrigin = (originPincode || '').toString().trim();
+    const cleanDest = (destinationPincode || '').toString().trim();
+    const weight = parseInt(weightInGrams) || 500; // Default weight to 500g if missing
+
+    if (!cleanOrigin || cleanOrigin.length !== 6) {
+      throw new Error('Invalid or missing origin pincode. Pincode must be exactly 6 digits.');
+    }
+    if (!cleanDest || cleanDest.length !== 6) {
+      throw new Error('Invalid or missing destination pincode. Pincode must be exactly 6 digits.');
+    }
+
+    if (this.isMock) {
+      console.log(`ℹ️ [DelhiveryProvider]: Mock Mode. Calculating shipping from ${cleanOrigin} to ${cleanDest} for weight ${weight}g (${paymentMode})...`);
+      
+      // Simulate unserviceable pincode for testing
+      if (cleanDest === '999999' || cleanDest.startsWith('999')) {
+        throw new Error('Pincode not serviceable by Delhivery.');
+      }
+
+      // Simulated calculation: base ₹60 + ₹15 per 500g + ₹40 COD surcharge if applicable
+      const baseFee = 60;
+      const weightSurcharge = Math.ceil(weight / 500) * 15;
+      const codFee = paymentMode.toUpperCase() === 'COD' ? 40 : 0;
+      const mockTotal = baseFee + weightSurcharge + codFee;
+
+      return {
+        success: true,
+        total_amount: mockTotal,
+        gross_amount: mockTotal - codFee,
+        tax_amount: 0,
+        serviceable: true
+      };
+    }
+
+    try {
+      // Build API query parameters
+      const queryParams = new URLSearchParams({
+        md: 'E', // E for Express, S for Surface
+        ss: 'Delivered', // Shipment status
+        o_pin: cleanOrigin,
+        d_pin: cleanDest,
+        cgm: weight.toString()
+      });
+
+      const url = `${this.apiBase}/api/koli/delivery/charges/?${queryParams.toString()}`;
+      console.log(`🔄 [DelhiveryProvider]: Querying charges from: ${url}`);
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Token ${this.token}`,
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ [DelhiveryProvider.calculateShippingCost] API error: ${response.status} - ${errorText}`);
+        if (response.status === 400 || response.status === 404) {
+          throw new Error('Pincode not serviceable by Delhivery.');
+        }
+        throw new Error(`Delhivery cost calculation failed: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      console.log('✅ [DelhiveryProvider] Cost calculation API response:', data);
+
+      if (!data || (Array.isArray(data) && data.length === 0)) {
+        throw new Error('Pincode not serviceable by Delhivery.');
+      }
+
+      let chargeInfo = null;
+      if (Array.isArray(data)) {
+        chargeInfo = data[0];
+      } else if (typeof data === 'object') {
+        chargeInfo = data;
+      }
+
+      if (!chargeInfo) {
+        throw new Error('Pincode not serviceable by Delhivery.');
+      }
+
+      // Parse the charge fields returned by Delhivery
+      const totalAmount = parseFloat(chargeInfo.total_amount || chargeInfo.gross_amount || chargeInfo.charges);
+      if (isNaN(totalAmount)) {
+        throw new Error('Failed to retrieve valid shipping charges from Delhivery response.');
+      }
+
+      // Add COD surcharge if COD is selected (often not included in base rate API)
+      let finalTotal = totalAmount;
+      if (paymentMode.toUpperCase() === 'COD') {
+        finalTotal += 40; // Default standard COD collection charge if applicable
+      }
+
+      return {
+        success: true,
+        total_amount: finalTotal,
+        gross_amount: totalAmount,
+        serviceable: true
+      };
+    } catch (err) {
+      console.error('❌ [DelhiveryProvider.calculateShippingCost] Failed:', err.message);
+      throw err;
+    }
+  }
 }
+

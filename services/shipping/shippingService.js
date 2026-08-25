@@ -470,6 +470,42 @@ export const shippingService = {
       const pdfBuffer = await pdfResponse.arrayBuffer();
       return Buffer.from(pdfBuffer);
     }
+  },
+
+  /**
+   * Calculate shipping charges dynamically using the active provider
+   */
+  calculateShippingCost: async ({ storeId, destinationPincode, paymentMode, cartItems }) => {
+    if (!storeId) throw new Error('Store ID is required to calculate shipping cost.');
+    if (!destinationPincode || destinationPincode.replace(/\D/g, '').length !== 6) {
+      throw new Error('Destination pincode must be exactly 6 digits.');
+    }
+
+    // 1. Fetch shipping settings for the store to get the origin pincode
+    const pickupSettings = await shippingService.getShippingSettings(storeId);
+    if (!pickupSettings || !pickupSettings.pincode) {
+      throw new Error('Store has not configured their shipping pickup address/pincode.');
+    }
+    const originPincode = pickupSettings.pincode.trim();
+
+    // 2. Calculate weight. Since we do not want to modify the DB schema, we check if weight is in the items.
+    // Default weight is 500 grams (0.5 kg) per item.
+    let totalWeightInGrams = 0;
+    for (const item of (cartItems || [])) {
+      const quantity = parseInt(item.quantity) || 1;
+      const itemWeight = parseFloat(item.weight || item.product_weight) || 500; // Default to 500g if missing
+      totalWeightInGrams += quantity * itemWeight;
+    }
+
+    // 3. Resolve active provider
+    const providerName = process.env.NEXT_PUBLIC_ACTIVE_SHIPPING_PROVIDER || 'Delhivery';
+    const provider = shippingFactory.getProvider(providerName);
+
+    if (!provider || typeof provider.calculateShippingCost !== 'function') {
+      throw new Error(`Shipping provider "${providerName}" does not support cost calculation.`);
+    }
+
+    return await provider.calculateShippingCost(originPincode, destinationPincode, totalWeightInGrams, paymentMode);
   }
 };
 

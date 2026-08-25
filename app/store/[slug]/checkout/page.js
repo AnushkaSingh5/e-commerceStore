@@ -62,6 +62,59 @@ export default function StoreCheckoutPage({ params }) {
   const [discountAmount, setDiscountAmount] = useState(0);
   const [availableCoupons, setAvailableCoupons] = useState([]);
 
+  // Delhivery Calculated Shipping States
+  const [calculatedShippingCost, setCalculatedShippingCost] = useState(null);
+  const [calculatingShipping, setCalculatingShipping] = useState(false);
+  const [shippingError, setShippingError] = useState('');
+
+  const fetchCalculatedShippingCost = async (pincodeVal, paymentMethodVal) => {
+    if (!pincodeVal || pincodeVal.replace(/\D/g, '').length !== 6) {
+      setCalculatedShippingCost(null);
+      setShippingError('');
+      return;
+    }
+    if (!storeDetails?.id) return;
+
+    setCalculatingShipping(true);
+    setShippingError('');
+    try {
+      const response = await fetch('/api/shipping/calculate-cost', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          storeId: storeDetails.id,
+          destinationPincode: pincodeVal,
+          paymentMode: paymentMethodVal === 'cod' ? 'COD' : 'Prepaid',
+          cartItems: cart
+        })
+      });
+      const data = await response.json();
+      if (data && data.success) {
+        setCalculatedShippingCost(data.total_amount);
+      } else {
+        setCalculatedShippingCost(null);
+        setShippingError(data.message || 'Pincode not serviceable by Delhivery.');
+      }
+    } catch (err) {
+      console.error('Error calculating shipping:', err);
+      setCalculatedShippingCost(null);
+      setShippingError('Failed to calculate shipping cost. Please verify your pincode.');
+    } finally {
+      setCalculatingShipping(false);
+    }
+  };
+
+  useEffect(() => {
+    if (storeDetails?.id && form.pincode && form.pincode.replace(/\D/g, '').length === 6) {
+      if (storeDetails?.theme_settings?.shippingType === 'calculated') {
+        fetchCalculatedShippingCost(form.pincode, paymentMethod);
+      }
+    } else {
+      setCalculatedShippingCost(null);
+      setShippingError('');
+    }
+  }, [form.pincode, paymentMethod, storeDetails?.id, storeDetails?.theme_settings?.shippingType]);
+
   // Authenticate customer role and pre-fill details
   useEffect(() => {
     if (authLoading) return;
@@ -343,8 +396,7 @@ export default function StoreCheckoutPage({ params }) {
     if (shippingType === 'flat') {
       shippingCost = flatFee;
     } else if (shippingType === 'calculated') {
-      const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
-      shippingCost = 40 + (totalItems * 10);
+      shippingCost = calculatedShippingCost !== null ? calculatedShippingCost : 0;
     } else {
       shippingCost = 0;
     }
@@ -1013,8 +1065,29 @@ export default function StoreCheckoutPage({ params }) {
                 </div>
               )}
 
-              <button type="submit" className="submit-order-btn" disabled={loading}>
-                {loading ? 'Processing Your Purchase...' : 'Complete Order'}
+              {shippingType === 'calculated' && shippingError && (
+                <div className="banner error-banner" style={{ marginBottom: '16px', padding: '12px', borderRadius: '8px', fontSize: '13px' }}>
+                  {shippingError}
+                </div>
+              )}
+
+              <button 
+                type="submit" 
+                className="submit-order-btn" 
+                disabled={
+                  loading || 
+                  (shippingType === 'calculated' && (
+                    calculatingShipping || 
+                    !!shippingError || 
+                    calculatedShippingCost === null || 
+                    !form.pincode || 
+                    form.pincode.replace(/\D/g, '').length !== 6
+                  ))
+                }
+              >
+                {loading ? 'Processing Your Purchase...' : 
+                 (shippingType === 'calculated' && calculatingShipping) ? 'Calculating Shipping...' : 
+                 'Complete Order'}
               </button>
             </form>
 
@@ -1121,9 +1194,23 @@ export default function StoreCheckoutPage({ params }) {
                 </div>
                 <div className="sum-row">
                   <span>Shipping</span>
-                  <span className={shippingCost === 0 ? "free" : ""}>
-                    {shippingCost === 0 ? "FREE" : `₹${shippingCost.toLocaleString()}`}
-                  </span>
+                  {shippingType === 'calculated' ? (
+                    (!form.pincode || form.pincode.replace(/\D/g, '').length !== 6) ? (
+                      <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 'normal' }}>Enter pincode to calculate</span>
+                    ) : calculatingShipping ? (
+                      <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 'normal' }}>Calculating...</span>
+                    ) : shippingError ? (
+                      <span style={{ fontSize: '12px', color: '#ef4444', fontWeight: 'normal' }}>Unserviceable</span>
+                    ) : shippingCost === 0 ? (
+                      <span className="free">FREE</span>
+                    ) : (
+                      <span>₹{shippingCost.toLocaleString()}</span>
+                    )
+                  ) : (
+                    <span className={shippingCost === 0 ? "free" : ""}>
+                      {shippingCost === 0 ? "FREE" : `₹${shippingCost.toLocaleString()}`}
+                    </span>
+                  )}
                 </div>
                 <div className="sum-row grand-total">
                   <span>Total</span>
