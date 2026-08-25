@@ -11,44 +11,55 @@ function CallbackContent() {
   const [errorMsg, setErrorMsg] = useState(null);
 
   useEffect(() => {
-    const handleCallback = async () => {
-      try {
-        const code = searchParams.get('code');
-        const rawNext = searchParams.get('next') || '/store/customer';
-        
-        // Validate internal path to prevent open redirect vulnerability
-        const next = rawNext.startsWith('/') && !rawNext.startsWith('//')
-          ? rawNext
-          : '/store/customer';
+    let isSubscribed = true;
+    const rawNext = searchParams.get('next') || '/store/customer';
+    
+    // Validate internal path to prevent open redirect vulnerability
+    const next = rawNext.startsWith('/') && !rawNext.startsWith('//')
+      ? rawNext
+      : '/store/customer';
 
-        if (code) {
-          console.log('🔄 [Kreatorstore - AuthCallback]: Exchanging code for session...');
-          const { error } = await supabaseClient.auth.exchangeCodeForSession(code);
-          if (error) throw error;
-          console.log('✅ [Kreatorstore - AuthCallback]: Session exchange successful. Redirecting to:', next);
-          router.push(next);
-        } else {
-          // If no code, check if we already have a session
-          const { data: { session } } = await supabaseClient.auth.getSession();
-          if (session) {
-            console.log('✅ [Kreatorstore - AuthCallback]: Active session found. Redirecting to:', next);
-            router.push(next);
-          } else {
-            console.warn('⚠️ [Kreatorstore - AuthCallback]: No code or session found. Redirecting to login.');
-            router.push('/customer/login');
-          }
-        }
-      } catch (err) {
-        console.error('❌ [Kreatorstore - AuthCallback]: Error handling callback:', err);
-        setErrorMsg(err.message || 'Authentication failed. Please try again.');
-        // Fall back to login page after a brief moment
-        setTimeout(() => {
-          router.push('/customer/login');
-        }, 3000);
+    const handleSessionResolution = (session) => {
+      if (session && isSubscribed) {
+        console.log('✅ [Kreatorstore - AuthCallback]: Active session confirmed. Redirecting to:', next);
+        isSubscribed = false;
+        router.push(next);
       }
     };
 
-    handleCallback();
+    // 1. Initial check (if session is already loaded/restored synchronously)
+    supabaseClient.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        handleSessionResolution(session);
+      }
+    });
+
+    // 2. Listen for SIGNED_IN event (for async token exchange/hash parsing)
+    const { data: { subscription } } = supabaseClient.auth.onAuthStateChange((event, session) => {
+      console.log(`ℹ️ [Kreatorstore - AuthCallback]: Auth state change event "${event}"`);
+      if (session && (event === 'SIGNED_IN' || event === 'USER_UPDATED')) {
+        handleSessionResolution(session);
+      }
+    });
+
+    // 3. Fallback timeout in case no session resolves within 5 seconds
+    const timeoutId = setTimeout(() => {
+      if (isSubscribed) {
+        supabaseClient.auth.getSession().then(({ data: { session } }) => {
+          if (!session && isSubscribed) {
+            console.warn('⚠️ [Kreatorstore - AuthCallback]: No active session resolved. Redirecting to login.');
+            isSubscribed = false;
+            router.push('/customer/login');
+          }
+        });
+      }
+    }, 5000);
+
+    return () => {
+      isSubscribed = false;
+      subscription?.unsubscribe();
+      clearTimeout(timeoutId);
+    };
   }, [searchParams, router]);
 
   if (errorMsg) {
