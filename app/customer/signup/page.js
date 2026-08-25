@@ -294,7 +294,7 @@ function SignupContent() {
             Log in
           </span>
         ) : (
-          <Link href={`/customer/login?redirect=${encodeURIComponent(redirect)}`} className="register-link">
+          <Link href={`/customer/login?redirect=${encodeURIComponent(redirectPath)}`} className="register-link">
             Log in
           </Link>
         )}
