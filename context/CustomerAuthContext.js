@@ -187,9 +187,13 @@ export function CustomerAuthProvider({ children }) {
 
       try {
         if (activeSession && activeSession.user && isSubscribed) {
-          const result = await fetchCustomerProfile(activeSession.user.id, activeSession.user);
-          if (result && result.success && result.profile) {
+          const isCustomerRole = activeSession.user.user_metadata?.role === 'customer' || activeSession.user.app_metadata?.role === 'customer';
+          if (isCustomerRole) {
             setCustomer(activeSession.user);
+            const result = await fetchCustomerProfile(activeSession.user.id, activeSession.user);
+            if (!result || !result.success || !result.profile) {
+              console.warn('⚠️ [Kreatorstore - CustomerAuth]: Customer profile could not be loaded/created.');
+            }
           } else {
             setCustomer(null);
             setCustomerProfile(null);
@@ -199,8 +203,7 @@ export function CustomerAuthProvider({ children }) {
           setCustomerProfile(null);
         }
       } catch (err) {
-        console.warn('⚠️ [Kreatorstore - CustomerAuth] Failed to load session profile due to network/timeout error:', err);
-        setCustomer(activeSession?.user || null);
+        console.warn('⚠️ [Kreatorstore - CustomerAuth] Failed to load session profile:', err);
       } finally {
         if (isSubscribed) {
           initialSessionLoadedRef.current = true;
@@ -230,9 +233,13 @@ export function CustomerAuthProvider({ children }) {
 
         try {
           if (session && session.user) {
-            const result = await fetchCustomerProfile(session.user.id, session.user);
-            if (result && result.success && result.profile) {
+            const isCustomerRole = session.user.user_metadata?.role === 'customer' || session.user.app_metadata?.role === 'customer';
+            if (isCustomerRole) {
               setCustomer(session.user);
+              const result = await fetchCustomerProfile(session.user.id, session.user);
+              if (!result || !result.success || !result.profile) {
+                console.warn('⚠️ [Kreatorstore - CustomerAuth]: Customer profile could not be loaded/created on auth change.');
+              }
             } else {
               setCustomer(null);
               setCustomerProfile(null);
@@ -537,7 +544,7 @@ export function CustomerAuthProvider({ children }) {
     customer,
     customerProfile,
     loading,
-    isAuthenticated: !!customer && !!customerProfile,
+    isAuthenticated: !!customer,
     login,
     signup,
     loginWithProvider,

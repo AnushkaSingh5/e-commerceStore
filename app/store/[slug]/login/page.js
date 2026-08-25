@@ -98,7 +98,7 @@ export default function StoreLoginPage({ params }) {
     try {
       const origin = window.location.hostname === 'localhost'
         ? window.location.origin
-        : (process.env.NEXT_PUBLIC_BASE_URL || 'https://kreatorstore.in');
+        : (process.env.NEXT_PUBLIC_BASE_URL || 'https://www.kreatorstore.in');
       const callbackUrl = `${origin}/customer/login?redirect=${encodeURIComponent(redirect)}`;
       console.log(`🔄 [Kreatorstore - StoreLoginPage]: Triggering OAuth login for ${provider} with callback ${callbackUrl}`);
       setIsRedirecting(true);
@@ -113,7 +113,7 @@ export default function StoreLoginPage({ params }) {
   const currentUserId = customer?.id;
   const isCreator = currentUserId && currentUserId === storeDetails?.creator_id;
 
-  if (storeDetails && storeDetails.status !== 'approved' && authLoading) {
+  if (authLoading || isRedirecting) {
     return <PageLoader />;
   }
 

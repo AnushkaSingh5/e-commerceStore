@@ -12,16 +12,16 @@ import { demoStores } from '@/lib/demoData';
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const rawRedirect = searchParams.get('redirect') || '/customer/profile';
+  const rawRedirect = searchParams.get('redirect') || '/store/customer';
   
   // Validate redirect to prevent open redirect vulnerabilities
   const redirect = rawRedirect.startsWith('/') && !rawRedirect.startsWith('//')
     ? rawRedirect
-    : '/customer/profile';
+    : '/store/customer';
 
   const method = searchParams.get('method') || 'email';
   
-  const { login, loginWithProvider, loginWithPhone, verifyPhoneOtp, isAuthenticated } = useCustomerAuth();
+  const { login, loginWithProvider, loginWithPhone, verifyPhoneOtp, isAuthenticated, loading: authLoading } = useCustomerAuth();
 
   const [activeTab, setActiveTab] = useState(method);
   
@@ -98,7 +98,7 @@ function LoginContent() {
     }
   }, [method]);
 
-  if (isRedirecting) {
+  if (authLoading || isRedirecting) {
     return <PageLoader />;
   }
 
@@ -195,7 +195,7 @@ function LoginContent() {
     try {
       const origin = window.location.hostname === 'localhost'
         ? window.location.origin
-        : (process.env.NEXT_PUBLIC_BASE_URL || 'https://kreatorstore.in');
+        : (process.env.NEXT_PUBLIC_BASE_URL || 'https://www.kreatorstore.in');
       const callbackUrl = `${origin}/customer/login?redirect=${encodeURIComponent(redirect)}`;
       console.log(`🔄 [Kreatorstore - CustomerLogin]: Triggering OAuth login for ${provider} with callback ${callbackUrl}`);
       setIsRedirecting(true);

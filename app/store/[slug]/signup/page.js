@@ -94,9 +94,7 @@ export default function StoreSignupPage({ params }) {
       setSuccessMsg('Account created successfully! Redirecting...');
       redirectingRef.current = true;
       setIsRedirecting(true);
-      setTimeout(() => {
-        router.push(redirect);
-      }, 1000);
+      router.push(redirect);
     } catch (err) {
       console.error('❌ [Kreatorstore - StoreSignupPage]: Signup error:', err);
       setErrorMsg(err.message || 'Failed to register account. Please try again.');
@@ -111,7 +109,7 @@ export default function StoreSignupPage({ params }) {
     try {
       const origin = window.location.hostname === 'localhost'
         ? window.location.origin
-        : (process.env.NEXT_PUBLIC_BASE_URL || 'https://kreatorstore.in');
+        : (process.env.NEXT_PUBLIC_BASE_URL || 'https://www.kreatorstore.in');
       const callbackUrl = `${origin}/customer/login?redirect=${encodeURIComponent(redirect)}`;
       console.log(`🔄 [Kreatorstore - StoreSignupPage]: Triggering OAuth signup for ${provider} with callback ${callbackUrl}`);
       setIsRedirecting(true);
@@ -126,7 +124,7 @@ export default function StoreSignupPage({ params }) {
   const currentUserId = customer?.id;
   const isCreator = currentUserId && currentUserId === storeDetails?.creator_id;
 
-  if (storeDetails && storeDetails.status !== 'approved' && authLoading) {
+  if (authLoading || isRedirecting) {
     return <PageLoader />;
   }
 

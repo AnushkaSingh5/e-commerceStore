@@ -240,14 +240,14 @@ export default function Navbar({ storeName, logoUrl }) {
                               
                               <div className="dropdown-actions">
                                 <Link 
-                                  href={storeSlug ? `/customer/login?redirect=/${isDemo ? 'demo-store' : 'store'}/${storeSlug}` : "/customer/login"} 
+                                  href={storeSlug && pathname ? `/customer/login?redirect=${encodeURIComponent(pathname)}` : "/customer/login"} 
                                   className="dropdown-primary-btn" 
                                   onClick={() => setIsDropdownOpen(false)}
                                 >
                                   Sign In
                                 </Link>
                                 <Link 
-                                  href={storeSlug ? `/customer/signup?redirect=/${isDemo ? 'demo-store' : 'store'}/${storeSlug}` : "/customer/signup"} 
+                                  href={storeSlug && pathname ? `/customer/signup?redirect=${encodeURIComponent(pathname)}` : "/customer/signup"} 
                                   className="dropdown-secondary-btn" 
                                   onClick={() => setIsDropdownOpen(false)}
                                 >

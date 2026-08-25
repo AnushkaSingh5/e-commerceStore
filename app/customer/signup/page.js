@@ -12,14 +12,14 @@ import { demoStores } from '@/lib/demoData';
 function SignupContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const rawRedirect = searchParams.get('redirect') || '/customer/profile';
+  const rawRedirect = searchParams.get('redirect') || '/store/customer';
   
   // Validate redirect to prevent open redirect vulnerabilities
   const redirect = rawRedirect.startsWith('/') && !rawRedirect.startsWith('//')
     ? rawRedirect
-    : '/customer/profile';
+    : '/store/customer';
 
-  const { signup, loginWithProvider, isAuthenticated } = useCustomerAuth();
+  const { signup, loginWithProvider, isAuthenticated, loading: authLoading } = useCustomerAuth();
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -82,7 +82,7 @@ function SignupContent() {
     }
   }, [isAuthenticated, redirect, router]);
 
-  if (isRedirecting) {
+  if (authLoading || isRedirecting) {
     return <PageLoader />;
   }
 
@@ -121,9 +121,7 @@ function SignupContent() {
         console.log('✅ [Kreatorstore - CustomerSignup]: Signup success. Redirecting to:', redirect);
         redirectingRef.current = true;
         setIsRedirecting(true);
-        setTimeout(() => {
-          router.push(redirect);
-        }, 1500);
+        router.push(redirect);
       } else {
         setLoading(false);
       }
@@ -139,7 +137,7 @@ function SignupContent() {
     try {
       const origin = window.location.hostname === 'localhost'
         ? window.location.origin
-        : (process.env.NEXT_PUBLIC_BASE_URL || 'https://kreatorstore.in');
+        : (process.env.NEXT_PUBLIC_BASE_URL || 'https://www.kreatorstore.in');
       const callbackUrl = `${origin}/customer/login?redirect=${encodeURIComponent(redirect)}`;
       console.log(`🔄 [Kreatorstore - CustomerSignup]: Triggering OAuth signup for ${provider} with callback ${callbackUrl}`);
       setIsRedirecting(true);

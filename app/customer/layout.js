@@ -52,11 +52,11 @@ export default function CustomerPortalLayout({ children }) {
 
   useEffect(() => {
     if (isPublicRoute) return;
-    if (!loading && (!customer || !customerProfile)) {
+    if (!loading && !customer) {
       console.log("Navigation triggered");
       router.push('/customer/login?redirect=' + encodeURIComponent(pathname));
     }
-  }, [customer, customerProfile, loading, router, pathname]);
+  }, [customer, loading, router, pathname]);
 
 
   const [storeDetails, setStoreDetails] = useState(null);
