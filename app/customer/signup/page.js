@@ -12,7 +12,13 @@ import { demoStores } from '@/lib/demoData';
 function SignupContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirect = searchParams.get('redirect') || '/customer/profile';
+  const rawRedirect = searchParams.get('redirect') || '/customer/profile';
+  
+  // Validate redirect to prevent open redirect vulnerabilities
+  const redirect = rawRedirect.startsWith('/') && !rawRedirect.startsWith('//')
+    ? rawRedirect
+    : '/customer/profile';
+
   const { signup, loginWithProvider, isAuthenticated } = useCustomerAuth();
 
   const [fullName, setFullName] = useState('');
@@ -103,7 +109,13 @@ function SignupContent() {
 
     try {
       console.log('🔄 [Kreatorstore - CustomerSignup]: Creating account:', email);
-      const res = await signup(email, password, fullName, phone);
+      // Construct the absolute callback URL dynamically
+      const origin = typeof window !== 'undefined'
+        ? window.location.origin
+        : (process.env.NEXT_PUBLIC_BASE_URL || 'https://www.kreatorstore.in');
+      const emailRedirectTo = `${origin}/customer/login?redirect=${encodeURIComponent(redirect)}`;
+
+      const res = await signup(email, password, fullName, phone, emailRedirectTo);
       if (res && res.success) {
         setSuccessMsg('Account created successfully! Redirecting...');
         console.log('✅ [Kreatorstore - CustomerSignup]: Signup success. Redirecting to:', redirect);

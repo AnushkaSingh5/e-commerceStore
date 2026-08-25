@@ -15,7 +15,13 @@ export default function StoreSignupPage({ params }) {
   const { slug } = use(params);
   const { startLoading, completeLoading } = useLoading();
   const searchParams = useSearchParams();
-  const redirect = searchParams.get('redirect') || `/store/${slug}`;
+  const rawRedirect = searchParams.get('redirect') || `/store/${slug}`;
+  
+  // Validate redirect to prevent open redirect vulnerabilities
+  const redirect = rawRedirect.startsWith('/') && !rawRedirect.startsWith('//')
+    ? rawRedirect
+    : `/store/${slug}`;
+
   const router = useRouter();
 
   const [name, setName] = useState('');
@@ -76,7 +82,13 @@ export default function StoreSignupPage({ params }) {
     startLoading();
     try {
       console.log('🔄 [Kreatorstore - StoreSignupPage]: Triggering signUp for customer:', email);
-      await signup(email, password, name, phone);
+      // Construct the absolute callback URL dynamically
+      const origin = typeof window !== 'undefined'
+        ? window.location.origin
+        : (process.env.NEXT_PUBLIC_BASE_URL || 'https://www.kreatorstore.in');
+      const emailRedirectTo = `${origin}/customer/login?redirect=${encodeURIComponent(redirect)}`;
+
+      await signup(email, password, name, phone, emailRedirectTo);
       
       console.log('✅ [Kreatorstore - StoreSignupPage]: Customer signup and auto-login successful.');
       setSuccessMsg('Account created successfully! Redirecting...');

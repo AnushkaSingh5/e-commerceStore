@@ -15,7 +15,13 @@ export default function StoreLoginPage({ params }) {
   const { slug } = use(params);
   const { startLoading, completeLoading } = useLoading();
   const searchParams = useSearchParams();
-  const redirect = searchParams.get('redirect') || `/store/${slug}`;
+  const rawRedirect = searchParams.get('redirect') || `/store/${slug}`;
+  
+  // Validate redirect to prevent open redirect vulnerabilities
+  const redirect = rawRedirect.startsWith('/') && !rawRedirect.startsWith('//')
+    ? rawRedirect
+    : `/store/${slug}`;
+
   const router = useRouter();
 
   const [email, setEmail] = useState('');

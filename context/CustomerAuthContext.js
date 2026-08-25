@@ -306,7 +306,7 @@ export function CustomerAuthProvider({ children }) {
     }
   };
 
-  const signup = async (email, password, fullName, phone) => {
+  const signup = async (email, password, fullName, phone, emailRedirectTo = null) => {
     if (!supabaseClient) throw new Error('Supabase client is not initialized.');
     setLoading(true);
     startLoading();
@@ -315,16 +315,20 @@ export function CustomerAuthProvider({ children }) {
       let signUpData;
       let signUpError;
       try {
+        const signUpOptions = {
+          data: {
+            name: fullName,
+            role: 'customer',
+            phone: phone,
+          },
+        };
+        if (emailRedirectTo) {
+          signUpOptions.emailRedirectTo = emailRedirectTo;
+        }
         const res = await supabaseClient.auth.signUp({
           email,
           password,
-          options: {
-            data: {
-              name: fullName,
-              role: 'customer',
-              phone: phone,
-            },
-          },
+          options: signUpOptions,
         });
         signUpData = res.data;
         signUpError = res.error;

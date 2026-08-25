@@ -12,7 +12,13 @@ import { demoStores } from '@/lib/demoData';
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirect = searchParams.get('redirect') || '/customer/profile';
+  const rawRedirect = searchParams.get('redirect') || '/customer/profile';
+  
+  // Validate redirect to prevent open redirect vulnerabilities
+  const redirect = rawRedirect.startsWith('/') && !rawRedirect.startsWith('//')
+    ? rawRedirect
+    : '/customer/profile';
+
   const method = searchParams.get('method') || 'email';
   
   const { login, loginWithProvider, loginWithPhone, verifyPhoneOtp, isAuthenticated } = useCustomerAuth();
