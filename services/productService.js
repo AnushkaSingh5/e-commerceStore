@@ -271,6 +271,7 @@ export const productService = {
       spec_origin: productInput.spec_origin !== undefined ? productInput.spec_origin : undefined,
       shipping_details: productInput.shipping_details !== undefined ? productInput.shipping_details : undefined,
       return_policy: productInput.return_policy !== undefined ? productInput.return_policy : undefined,
+      weight: productInput.weight !== undefined ? productInput.weight : null,
     };
 
     console.log('[Kreatorstore - ProductService] dbInput mapped:', dbInput);
@@ -356,6 +357,7 @@ export const productService = {
       spec_origin: updateInput.spec_origin,
       shipping_details: updateInput.shipping_details,
       return_policy: updateInput.return_policy,
+      weight: updateInput.weight !== undefined ? updateInput.weight : undefined,
     };
 
     // Filter undefined keys

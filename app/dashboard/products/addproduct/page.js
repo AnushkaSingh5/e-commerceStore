@@ -34,7 +34,8 @@ function AddProductFormContent() {
     spec_warranty: '',
     spec_origin: '',
     shipping_details: '',
-    return_policy: ''
+    return_policy: '',
+    weight: ''
   });
 
   const imageInputRef = useRef(null);
@@ -62,7 +63,8 @@ function AddProductFormContent() {
           spec_warranty: product.spec_warranty || '',
           spec_origin: product.spec_origin || '',
           shipping_details: product.shipping_details || '',
-          return_policy: product.return_policy || ''
+          return_policy: product.return_policy || '',
+          weight: product.weight !== undefined && product.weight !== null ? product.weight : ''
         });
         setProductImages(product.images || [product.image]);
       }
@@ -172,6 +174,16 @@ function AddProductFormContent() {
       return;
     }
 
+    // Weight field validation
+    if (formData.weight !== undefined && formData.weight !== null && formData.weight !== '') {
+      const weightVal = parseFloat(formData.weight);
+      if (isNaN(weightVal) || weightVal <= 0) {
+        alert('Product Weight must be a positive number greater than 0.');
+        setSaving(false);
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       const productData = {
@@ -191,7 +203,10 @@ function AddProductFormContent() {
         spec_warranty: formData.spec_warranty || null,
         spec_origin: formData.spec_origin || null,
         shipping_details: formData.shipping_details || null,
-        return_policy: formData.return_policy || null
+        return_policy: formData.return_policy || null,
+        weight: (formData.weight !== undefined && formData.weight !== null && formData.weight !== '') 
+          ? parseFloat(formData.weight) 
+          : null
       };
 
       if (isEditing) {
@@ -333,6 +348,32 @@ function AddProductFormContent() {
                 <option value="Draft">Draft (hidden from store)</option>
               </select>
             </div>
+          </div>
+        </div>
+
+        <div className="form-row" style={{ marginTop: '12px' }}>
+          <div className="form-group">
+            <label>Product Weight (grams) <span className="optional">(optional)</span></label>
+            <div className="input-with-icon">
+              <div className="input-prefix">g</div>
+              <input 
+                type="number" 
+                placeholder="e.g. 500" 
+                step="any"
+                min="0.01"
+                value={formData.weight}
+                onChange={(e) => setFormData({...formData, weight: e.target.value})}
+                onKeyDown={(e) => {
+                  if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault();
+                }}
+              />
+            </div>
+            <p className="help-text" style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
+              Enter the product/package weight in grams.
+            </p>
+          </div>
+          <div className="form-group" style={{ visibility: 'hidden' }}>
+            {/* Spacer */}
           </div>
         </div>
 

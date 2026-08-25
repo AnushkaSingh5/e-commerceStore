@@ -280,6 +280,7 @@ CREATE TABLE IF NOT EXISTS public.products (
   og_title TEXT,
   og_description TEXT,
   canonical_url TEXT,
+  weight NUMERIC,
   UNIQUE (store_id, slug)
 );
 
