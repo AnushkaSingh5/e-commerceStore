@@ -9,8 +9,8 @@ export default function CartPage() {
   const { cart, cartTotal, updateQuantity, removeFromCart, clearCart } = useStore();
 
   const shipping = cart.length > 0 ? 0 : 0; // Free shipping for now
-  const tax = cartTotal * 0.08;
-  const total = cartTotal + tax + shipping;
+  const tax = 0;
+  const total = cartTotal + shipping;
   const hasInventoryErrors = cart.some(item => item.is_deleted);
 
   return (
@@ -93,10 +93,7 @@ export default function CartPage() {
                 <span>Subtotal</span>
                 <span>₹{cartTotal.toLocaleString()}</span>
               </div>
-              <div className="summary-row">
-                <span>Estimated Tax (8%)</span>
-                <span>₹{tax.toLocaleString()}</span>
-              </div>
+
               <div className="summary-row">
                 <span>Shipping</span>
                 <span className="free">FREE</span>

@@ -101,7 +101,7 @@ export const checkoutService = {
     for (const storeId of Object.keys(storeGroups)) {
       const items = storeGroups[storeId];
       const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-      const tax = subtotal * 0.08;
+      const tax = 0;
       const discount = couponData ? parseFloat(couponData.discount_amount) || 0 : 0;
       
       let shippingCost = 0;

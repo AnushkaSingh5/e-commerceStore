@@ -123,8 +123,8 @@ export default function CartClientPage({ slug }) {
   const cartTotal = selectedCartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   const shipping = selectedCartItems.length > 0 ? 0 : 0; 
-  const tax = cartTotal * 0.08;
-  const total = cartTotal + tax + shipping;
+  const tax = 0;
+  const total = cartTotal + shipping;
 
   return (
     <div className="cart-page">
@@ -238,10 +238,7 @@ export default function CartClientPage({ slug }) {
                 <span>Subtotal</span>
                 <span>₹{cartTotal.toLocaleString()}</span>
               </div>
-              <div className="summary-row">
-                <span>Estimated Tax (8%)</span>
-                <span>₹{tax.toLocaleString()}</span>
-              </div>
+
               <div className="summary-row">
                 <span>Shipping</span>
                 <span className="free">FREE</span>

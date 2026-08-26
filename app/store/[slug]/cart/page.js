@@ -166,7 +166,7 @@ export default function CartPage({ params }) {
 
   const selectedCartItems = cart.filter(item => selectedItems.includes(item.id));
   const cartTotal = selectedCartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const tax = cartTotal * 0.08;
+  const tax = 0;
   const hasInventoryErrors = selectedCartItems.some(item => item.stock === 0 || item.quantity > item.stock || item.is_deleted);
 
   const shippingType = storeDetails?.theme_settings?.shippingType ?? 'flat';
@@ -323,10 +323,7 @@ export default function CartPage({ params }) {
                 <span>Subtotal</span>
                 <span>₹{cartTotal.toLocaleString()}</span>
               </div>
-              <div className="summary-row">
-                <span>Estimated Tax (8%)</span>
-                <span>₹{tax.toLocaleString()}</span>
-              </div>
+
               <div className="summary-row">
                 <span>Shipping</span>
                 <span className={shipping === 0 ? "free" : ""}>

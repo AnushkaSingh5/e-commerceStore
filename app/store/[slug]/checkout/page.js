@@ -385,7 +385,7 @@ export default function StoreCheckoutPage({ params }) {
 
   
   const cartTotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const tax = cartTotal * 0.08;
+  const tax = 0;
   
   const shippingType = storeDetails?.theme_settings?.shippingType ?? 'flat';
   const parsedFlatFee = parseFloat(storeDetails?.theme_settings?.flatFee);
@@ -1188,10 +1188,7 @@ export default function StoreCheckoutPage({ params }) {
                     <span className="discount-amount">-₹{discount.toLocaleString()}</span>
                   </div>
                 )}
-                <div className="sum-row">
-                  <span>Tax (8%)</span>
-                  <span>₹{tax.toLocaleString()}</span>
-                </div>
+
                 <div className="sum-row">
                   <span>Shipping</span>
                   {shippingType === 'calculated' ? (

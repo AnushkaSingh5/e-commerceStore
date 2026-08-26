@@ -865,7 +865,7 @@ export class DelhiveryProvider {
         cgm: weight.toString()
       });
 
-      const url = `${this.apiBase}/api/koli/delivery/charges/?${queryParams.toString()}`;
+      const url = `${this.apiBase}/api/kinko/v1/invoice/charges/.json?${queryParams.toString()}`;
       console.log(`🔄 [DelhiveryProvider]: Querying charges from: ${url}`);
 
       const response = await fetch(url, {

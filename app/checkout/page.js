@@ -59,8 +59,8 @@ export default function GlobalCheckoutPage() {
     }
   };
 
-  const tax = cartTotal * 0.08;
-  const total = cartTotal + tax; // Free shipping
+  const tax = 0;
+  const total = cartTotal; // Free shipping
 
   if (success) {
     return (
@@ -336,10 +336,7 @@ export default function GlobalCheckoutPage() {
                   <span>Subtotal</span>
                   <span>₹{cartTotal.toLocaleString()}</span>
                 </div>
-                <div className="sum-row">
-                  <span>Tax (8%)</span>
-                  <span>₹{tax.toLocaleString()}</span>
-                </div>
+
                 <div className="sum-row">
                   <span>Shipping</span>
                   <span className="free">FREE</span>
