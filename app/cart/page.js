@@ -8,9 +8,8 @@ import Footer from '@/components/Footer';
 export default function CartPage() {
   const { cart, cartTotal, updateQuantity, removeFromCart, clearCart } = useStore();
 
-  const shipping = cart.length > 0 ? 0 : 0; // Free shipping for now
-  const tax = 0;
-  const total = cartTotal + shipping;
+  // Cart displays pure product subtotal. Shipping is calculated only at checkout.
+  const total = cartTotal;
   const hasInventoryErrors = cart.some(item => item.is_deleted);
 
   return (
@@ -93,16 +92,15 @@ export default function CartPage() {
                 <span>Subtotal</span>
                 <span>₹{cartTotal.toLocaleString()}</span>
               </div>
-
-              <div className="summary-row">
-                <span>Shipping</span>
-                <span className="free">FREE</span>
-              </div>
               
               <div className="summary-total">
                 <span>Total</span>
                 <span>₹{total.toLocaleString()}</span>
               </div>
+
+              <p style={{ fontSize: '12px', color: 'var(--text-sub)', margin: '8px 0 16px', textAlign: 'center' }}>
+                Taxes & shipping calculated at checkout
+              </p>
 
               {hasInventoryErrors ? (
                 <button className="checkout-btn disabled-btn" disabled style={{ width: '100%', border: 'none', cursor: 'not-allowed' }}>

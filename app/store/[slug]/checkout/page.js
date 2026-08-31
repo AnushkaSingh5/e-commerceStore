@@ -384,7 +384,7 @@ export default function StoreCheckoutPage({ params }) {
   // Filter global cart items to only purchase items belonging to this specific store
 
   
-  const cartTotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const cartTotal = parseFloat(cart.reduce((sum, item) => sum + item.price * item.quantity, 0).toFixed(2));
   const tax = 0;
   
   const shippingType = storeDetails?.theme_settings?.shippingType ?? 'flat';
@@ -394,9 +394,9 @@ export default function StoreCheckoutPage({ params }) {
   let shippingCost = 0;
   if (cart.length > 0) {
     if (shippingType === 'flat') {
-      shippingCost = flatFee;
+      shippingCost = parseFloat(flatFee.toFixed(2));
     } else if (shippingType === 'calculated') {
-      shippingCost = calculatedShippingCost !== null ? calculatedShippingCost : 0;
+      shippingCost = calculatedShippingCost !== null ? parseFloat(calculatedShippingCost.toFixed(2)) : 0;
     } else {
       shippingCost = 0;
     }
@@ -409,10 +409,18 @@ export default function StoreCheckoutPage({ params }) {
   const discount = (appliedCoupon && isCouponValidForTotal) ? (
     appliedCoupon.discount_type === 'percentage'
       ? parseFloat((cartTotal * (appliedCoupon.discount_value / 100)).toFixed(2))
-      : parseFloat(appliedCoupon.discount_value)
+      : parseFloat(Math.min(cartTotal, parseFloat(appliedCoupon.discount_value)).toFixed(2))
   ) : 0;
   
-  const total = Math.max(0, cartTotal + tax - discount + shippingCost);
+  const total = parseFloat(Math.max(0, cartTotal + tax - discount + shippingCost).toFixed(2));
+
+  const formatCurrency = (val) => {
+    const num = typeof val === 'number' ? val : parseFloat(val) || 0;
+    return num.toLocaleString('en-IN', {
+      minimumFractionDigits: num % 1 === 0 ? 0 : 2,
+      maximumFractionDigits: 2
+    });
+  };
 
   const handleApplyCoupon = async (e) => {
     if (e) e.preventDefault();
@@ -1182,12 +1190,12 @@ export default function StoreCheckoutPage({ params }) {
               <div className="summary-totals">
                 <div className="sum-row">
                   <span>Subtotal</span>
-                  <span>₹{cartTotal.toLocaleString()}</span>
+                  <span>₹{formatCurrency(cartTotal)}</span>
                 </div>
                 {appliedCoupon && isCouponValidForTotal && (
                   <div className="sum-row discount">
                     <span>Discount ({appliedCoupon.discount_type === 'percentage' ? `${appliedCoupon.discount_value}%` : 'Flat'})</span>
-                    <span className="discount-amount">-₹{discount.toLocaleString()}</span>
+                    <span className="discount-amount">-₹{formatCurrency(discount)}</span>
                   </div>
                 )}
 
@@ -1203,17 +1211,17 @@ export default function StoreCheckoutPage({ params }) {
                     ) : shippingCost === 0 ? (
                       <span className="free">FREE</span>
                     ) : (
-                      <span>₹{shippingCost.toLocaleString()}</span>
+                      <span>₹{formatCurrency(shippingCost)}</span>
                     )
                   ) : (
                     <span className={shippingCost === 0 ? "free" : ""}>
-                      {shippingCost === 0 ? "FREE" : `₹${shippingCost.toLocaleString()}`}
+                      {shippingCost === 0 ? "FREE" : `₹${formatCurrency(shippingCost)}`}
                     </span>
                   )}
                 </div>
                 <div className="sum-row grand-total">
                   <span>Total</span>
-                  <span>₹{total.toLocaleString()}</span>
+                  <span>₹{formatCurrency(total)}</span>
                 </div>
               </div>
             </div>

@@ -169,23 +169,8 @@ export default function CartPage({ params }) {
   const tax = 0;
   const hasInventoryErrors = selectedCartItems.some(item => item.stock === 0 || item.quantity > item.stock || item.is_deleted);
 
-  const shippingType = storeDetails?.theme_settings?.shippingType ?? 'flat';
-  const parsedFlatFee = parseFloat(storeDetails?.theme_settings?.flatFee);
-  const flatFee = isNaN(parsedFlatFee) ? 15 : parsedFlatFee;
-  
-  let shipping = 0;
-  if (selectedCartItems.length > 0) {
-    if (shippingType === 'flat') {
-      shipping = flatFee;
-    } else if (shippingType === 'calculated') {
-      const totalItems = selectedCartItems.reduce((sum, item) => sum + item.quantity, 0);
-      shipping = 40 + (totalItems * 10);
-    } else {
-      shipping = 0;
-    }
-  }
-
-  const total = cartTotal + tax + shipping;
+  // Cart displays pure product subtotal. Shipping is calculated only at checkout.
+  const total = cartTotal;
 
   return (
     <div className="cart-page">
@@ -324,17 +309,14 @@ export default function CartPage({ params }) {
                 <span>₹{cartTotal.toLocaleString()}</span>
               </div>
 
-              <div className="summary-row">
-                <span>Shipping</span>
-                <span className={shipping === 0 ? "free" : ""}>
-                  {shipping === 0 ? "FREE" : `₹${shipping.toLocaleString()}`}
-                </span>
-              </div>
-
               <div className="summary-total">
                 <span>Total</span>
                 <span>₹{total.toLocaleString()}</span>
               </div>
+
+              <p style={{ fontSize: '12px', color: '#94a3b8', margin: '8px 0 16px', textAlign: 'center' }}>
+                Taxes & shipping calculated at checkout
+              </p>
 
               {selectedItems.length === 0 || hasInventoryErrors ? (
                 <button className="checkout-btn disabled-btn" disabled style={{ width: '100%', border: 'none', cursor: 'not-allowed' }}>

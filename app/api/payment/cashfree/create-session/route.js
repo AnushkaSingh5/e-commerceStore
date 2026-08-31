@@ -71,8 +71,10 @@ export async function POST(request) {
 
     console.log(`🔄 [create-session]: Creating Cashfree order for system order ID: ${orderId}, amount: ${amount}, return_url: ${returnUrl}`);
 
+    const formattedAmount = parseFloat(parseFloat(amount).toFixed(2));
+
     const requestPayload = {
-      order_amount: parseFloat(amount),
+      order_amount: formattedAmount,
       order_currency: 'INR',
       order_id: orderId,
       customer_details: {
@@ -91,6 +93,7 @@ export async function POST(request) {
     console.log(`[Cashfree Debug]`);
     console.log(`  environment = ${isProduction ? 'PRODUCTION' : 'SANDBOX'}`);
     console.log(`  API endpoint = ${isProduction ? 'https://api.cashfree.com/pg/orders' : 'https://sandbox.cashfree.com/pg/orders'}`);
+    console.log(`  amount sent to Cashfree = ${formattedAmount}`);
     console.log(`  payment_session_id present = ${Boolean(responseData.payment_session_id)}`);
     console.log(`  payment_session_id length = ${responseData.payment_session_id?.length || 0}`);
     console.log(`  order ID = ${responseData.order_id}`);

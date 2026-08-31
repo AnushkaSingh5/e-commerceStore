@@ -100,9 +100,9 @@ export const checkoutService = {
     // Place separate database orders per store group
     for (const storeId of Object.keys(storeGroups)) {
       const items = storeGroups[storeId];
-      const subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+      const subtotal = parseFloat(items.reduce((sum, item) => sum + (item.price * item.quantity), 0).toFixed(2));
       const tax = 0;
-      const discount = couponData ? parseFloat(couponData.discount_amount) || 0 : 0;
+      const discount = couponData ? parseFloat((parseFloat(couponData.discount_amount) || 0).toFixed(2)) : 0;
       
       let shippingCost = 0;
       let selectedShippingProvider = 'Shiprocket';
@@ -119,7 +119,7 @@ export const checkoutService = {
           const shippingType = themeSettings.shippingType ?? 'flat';
           const flatFee = parseFloat(themeSettings.flatFee) ?? 15;
           if (shippingType === 'flat') {
-            shippingCost = flatFee;
+            shippingCost = parseFloat(flatFee.toFixed(2));
             selectedShippingProvider = 'Shiprocket';
           } else if (shippingType === 'calculated') {
             try {
@@ -130,7 +130,7 @@ export const checkoutService = {
                 cartItems: items
               });
               if (res && res.success && res.serviceable) {
-                shippingCost = res.total_amount;
+                shippingCost = parseFloat((parseFloat(res.total_amount) || 0).toFixed(2));
                 selectedShippingProvider = res.shipments?.[0]?.provider || 'Shiprocket';
               } else {
                 throw new Error(res.message || 'Pincode is not serviceable by shipping providers.');
@@ -146,7 +146,7 @@ export const checkoutService = {
         }
       }
 
-      const totalAmount = Math.max(0, subtotal + tax - discount + shippingCost);
+      const totalAmount = parseFloat(Math.max(0, subtotal + tax - discount + shippingCost).toFixed(2));
 
       const orderData = {
         store_id: storeId === 'unknown' ? null : storeId,

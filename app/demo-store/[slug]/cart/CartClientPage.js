@@ -122,9 +122,8 @@ export default function CartClientPage({ slug }) {
   const selectedCartItems = cart.filter(item => selectedItems.includes(item.id));
   const cartTotal = selectedCartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
-  const shipping = selectedCartItems.length > 0 ? 0 : 0; 
-  const tax = 0;
-  const total = cartTotal + shipping;
+  // Cart displays pure product subtotal. Shipping is calculated only at checkout.
+  const total = cartTotal;
 
   return (
     <div className="cart-page">
@@ -239,15 +238,14 @@ export default function CartClientPage({ slug }) {
                 <span>₹{cartTotal.toLocaleString()}</span>
               </div>
 
-              <div className="summary-row">
-                <span>Shipping</span>
-                <span className="free">FREE</span>
-              </div>
-
               <div className="summary-total">
                 <span>Total</span>
                 <span>₹{total.toLocaleString()}</span>
               </div>
+
+              <p style={{ fontSize: '12px', color: '#94a3b8', margin: '8px 0 16px', textAlign: 'center' }}>
+                Taxes & shipping calculated at checkout
+              </p>
 
               {selectedItems.length === 0 ? (
                 <button className="checkout-btn disabled-btn" disabled style={{ width: '100%', border: 'none', cursor: 'not-allowed' }}>
