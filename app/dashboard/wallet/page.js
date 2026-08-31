@@ -346,46 +346,7 @@ export default function CreatorWallet() {
           <h3>Wallet Transactions Ledger</h3>
           <span className="card-badge">{transactions.length} records</span>
         </div>
-        <div className="desktop-columns">
-          <Table columns={columns} data={transactions} loading={loading} />
-        </div>
-        <div className="mobile-card-wrapper">
-          {transactions.length > 0 ? (
-            transactions.map((tx) => {
-              const isNegative = tx.amount < 0;
-              return (
-                <div className="tx-card" key={tx.id}>
-                  <div className="tx-card-top">
-                    <span className="tx-type-pill" style={{ background: `${getTransactionTypeColor(tx.type)}15`, color: getTransactionTypeColor(tx.type) }}>
-                      {tx.type}
-                    </span>
-                    <span className={`status-badge status-${(tx.status || 'pending').toLowerCase()}`}>
-                      {tx.status}
-                    </span>
-                  </div>
-                  <div className="tx-card-middle">
-                    <div className="tx-metric">
-                      <span className="tx-lbl">Amount</span>
-                      <strong className={isNegative ? 'text-red' : 'text-green'}>
-                        {isNegative ? '-' : '+'}₹{Math.abs(tx.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </strong>
-                    </div>
-                    <div className="tx-metric">
-                      <span className="tx-lbl">Reference ID</span>
-                      <span className="tx-ref">#{tx.reference_id ? tx.reference_id.substring(0, 8).toUpperCase() : 'N/A'}</span>
-                    </div>
-                  </div>
-                  <div className="tx-card-footer">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-                    <span>{tx.created_at ? new Date(tx.created_at).toLocaleDateString() : 'N/A'}</span>
-                  </div>
-                </div>
-              );
-            })
-          ) : (
-            <div className="empty-state">No transaction records found.</div>
-          )}
-        </div>
+        <Table columns={columns} data={transactions} loading={loading} />
       </div>
 
       {/* Modal: Withdraw Money */}

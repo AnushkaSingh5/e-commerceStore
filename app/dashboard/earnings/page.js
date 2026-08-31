@@ -183,77 +183,14 @@ export default function EarningsPage() {
           <div className="card-header">
             <h3>Recent Earnings Ledger</h3>
           </div>
-          <div className="desktop-columns">
-            <Table columns={earningColumns} data={earnings.slice(0, 15)} loading={loading} />
-          </div>
-          <div className="mobile-card-wrapper">
-            {earnings.slice(0, 15).map((earn) => (
-              <div className="earning-card" key={earn.id}>
-                <div className="earn-card-top">
-                  <strong>#{earn.orderId ? earn.orderId.substring(0, 8) : 'N/A'}</strong>
-                  <span className={`status-badge status-${(earn.status || 'pending').toLowerCase()}`}>
-                    {earn.status}
-                  </span>
-                </div>
-                <div className="earn-card-middle">
-                  <div className="earn-metric">
-                    <span className="earn-lbl">Order Amt</span>
-                    <span>₹{parseFloat(earn.orderAmount).toLocaleString()}</span>
-                  </div>
-                  <div className="earn-metric font-bold" style={{ color: '#10b981' }}>
-                    <span className="earn-lbl">Seller Amt</span>
-                    <span>₹{parseFloat(earn.creatorAmount).toLocaleString()}</span>
-                  </div>
-                </div>
-                <div className="earn-card-footer">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-                  <span>{earn.date}</span>
-                </div>
-              </div>
-            ))}
-          </div>
+          <Table columns={earningColumns} data={earnings.slice(0, 15)} loading={loading} />
         </div>
 
         <div className="table-card">
           <div className="card-header">
             <h3>Payout Withdrawal Requests</h3>
           </div>
-          <div className="desktop-columns">
-            <Table columns={payoutColumns} data={payouts} loading={loading} />
-          </div>
-          <div className="mobile-card-wrapper">
-            {payouts.length > 0 ? (
-              payouts.map((pay) => (
-                <div className="payout-card" key={pay.id}>
-                  <div className="pay-card-top">
-                    <div className="pay-id-box">
-                      <strong>#{pay.withdrawalNumber || pay.id.substring(0, 8).toUpperCase()}</strong>
-                      <span className="pay-method">{pay.method}</span>
-                    </div>
-                    <span className={`status-badge status-${(pay.status || 'pending').toLowerCase()}`}>
-                      {pay.status}
-                    </span>
-                  </div>
-                  <div className="pay-card-middle">
-                    <div className="pay-metric">
-                      <span className="pay-lbl">Amount</span>
-                      <strong className="font-bold">₹{parseFloat(pay.amount).toLocaleString()}</strong>
-                    </div>
-                    <div className="pay-metric">
-                      <span className="pay-lbl">Account Details</span>
-                      <span className="pay-acc">{pay.accountDetails}</span>
-                    </div>
-                  </div>
-                  <div className="pay-card-footer">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-                    <span>{pay.requestedAt}</span>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="empty-state">No withdrawal requests found.</div>
-            )}
-          </div>
+          <Table columns={payoutColumns} data={payouts} loading={loading} />
         </div>
       </div>
 
