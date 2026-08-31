@@ -105,6 +105,8 @@ export const checkoutService = {
       const discount = couponData ? parseFloat(couponData.discount_amount) || 0 : 0;
       
       let shippingCost = 0;
+      let selectedShippingProvider = 'Shiprocket';
+
       if (supabaseClient && storeId !== 'unknown') {
         const { data: storeData } = await supabaseClient
           .from('stores')
@@ -118,6 +120,7 @@ export const checkoutService = {
           const flatFee = parseFloat(themeSettings.flatFee) ?? 15;
           if (shippingType === 'flat') {
             shippingCost = flatFee;
+            selectedShippingProvider = 'Shiprocket';
           } else if (shippingType === 'calculated') {
             try {
               const res = await shippingService.calculateShippingCost({
@@ -126,10 +129,11 @@ export const checkoutService = {
                 paymentMode: customerInfo.payment_provider === 'COD' ? 'COD' : 'Prepaid',
                 cartItems: items
               });
-              if (res && res.success) {
+              if (res && res.success && res.serviceable) {
                 shippingCost = res.total_amount;
+                selectedShippingProvider = res.shipments?.[0]?.provider || 'Shiprocket';
               } else {
-                throw new Error('Failed to calculate shipping rate.');
+                throw new Error(res.message || 'Pincode is not serviceable by shipping providers.');
               }
             } catch (err) {
               console.error('❌ [checkoutService] Calculated shipping failed:', err.message);
@@ -137,6 +141,7 @@ export const checkoutService = {
             }
           } else {
             shippingCost = 0;
+            selectedShippingProvider = 'Shiprocket';
           }
         }
       }
@@ -165,6 +170,7 @@ export const checkoutService = {
 
         total_amount: totalAmount,
         shipping_cost: shippingCost,
+        shipping_provider: selectedShippingProvider,
         payment_provider: customerInfo.payment_provider || 'Razorpay',
         items,
         coupon_id: couponData?.coupon_id || null,

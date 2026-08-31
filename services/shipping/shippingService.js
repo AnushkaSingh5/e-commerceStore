@@ -156,7 +156,7 @@ export const shippingService = {
     if (!storeId) throw new Error('Store ID is required to save settings.');
 
     // 1. Resolve active shipping provider and register/verify pickup location
-    const providerName = process.env.NEXT_PUBLIC_ACTIVE_SHIPPING_PROVIDER || 'Delhivery';
+    const providerName = process.env.NEXT_PUBLIC_ACTIVE_SHIPPING_PROVIDER || 'Shiprocket';
     const provider = shippingFactory.getProvider(providerName);
     
     let regResult = { lat: null, lon: null, registered: false, pickup_location_name: null, pickup_location_id: null };
@@ -209,7 +209,7 @@ export const shippingService = {
   },
 
   /**
-   * Create shipment on the active shipping provider for a paid order
+   * Create shipment on the selected shipping provider for an order with duplicate prevention
    */
   createShipment: async (orderId) => {
     if (!orderId) throw new Error('Order ID is required to create a shipment.');
@@ -223,9 +223,30 @@ export const shippingService = {
         throw new Error(`Order ${orderId} details could not be found.`);
       }
 
+      // DUPLICATE PREVENTION: Check if shipment already exists with a valid AWB
+      if (orderDetails.awb_number && orderDetails.awb_number.toString().trim() !== '') {
+        console.log(`ℹ️ [shippingService.createShipment]: Order ${orderId} already has a created shipment (AWB: ${orderDetails.awb_number}, Shipment ID: ${orderDetails.shipment_id}, Provider: ${orderDetails.shipping_provider}). Skipping duplicate creation.`);
+        return {
+          success: true,
+          shipment_id: orderDetails.shipment_id,
+          awb_number: orderDetails.awb_number,
+          courier_name: orderDetails.courier_name,
+          tracking_number: orderDetails.tracking_number,
+          tracking_url: orderDetails.tracking_url,
+          status: orderDetails.shipping_status || 'Shipment Created',
+          estimated_delivery: orderDetails.estimated_delivery
+        };
+      }
+
       // Pre-Validation: address, pincode, phone, products
       const address = (orderDetails.shipping_address || '').trim();
-      const pincode = (orderDetails.shipping_address_pincode || '').trim();
+      let pincode = (orderDetails.shipping_address_pincode || orderDetails.shipping_pincode || '').trim();
+      if (!pincode || pincode.replace(/\D/g, '').length !== 6) {
+        const pinMatch = (orderDetails.shipping_address || '').match(/\b\d{6}\b/);
+        if (pinMatch) {
+          pincode = pinMatch[0];
+        }
+      }
       const phone = (orderDetails.customer_phone || '').trim();
       
       if (!address || address.length < 10) {
@@ -244,36 +265,79 @@ export const shippingService = {
         throw new Error(`Warehouse settings (pickup address) are missing for store ${orderDetails.store_id}. Please configure shipping settings in the Creator dashboard.`);
       }
 
-      // 3. Resolve active shipping provider
-      const providerName = process.env.NEXT_PUBLIC_ACTIVE_SHIPPING_PROVIDER || 'Delhivery';
+      const shiprocketProvider = shippingFactory.getProvider('Shiprocket');
+      const delhiveryProvider = shippingFactory.getProvider('Delhivery');
 
-      if (providerName === 'Delhivery') {
-        console.log('Pickup Configuration Loaded:');
-        console.log(pickupSettings.warehouse_name || 'N/A');
-        console.log(pickupSettings.business_name || 'N/A');
-        console.log(pickupSettings.contact_person || 'N/A');
-        console.log(pickupSettings.phone || 'N/A');
-        console.log(pickupSettings.email || 'N/A');
-        console.log(pickupSettings.address || 'N/A');
-        console.log(pickupSettings.city || 'N/A');
-        console.log(pickupSettings.state || 'N/A');
-        console.log(pickupSettings.pincode || 'N/A');
+      let result = null;
+      let actualProviderUsed = null;
+      let shiprocketError = null;
+
+      // ============================================================
+      // STEP 1: Attempt Primary Provider (Shiprocket)
+      // ============================================================
+      console.log(`[Shipping] Attempting Shiprocket for Order: ${orderId}`);
+      console.log(`[Shipping] Shiprocket request started`);
+
+      try {
+        result = await shiprocketProvider.createShipment(orderId, orderDetails, pickupSettings);
+        // Shiprocket is ONLY considered SUCCESS if BOTH shipment_id AND awb_number are present
+        if (result && result.success && result.shipment_id && result.awb_number && result.awb_number.toString().trim() !== '') {
+          actualProviderUsed = 'Shiprocket';
+          console.log(`[Shipping] Shiprocket success: shipmentId=${result.shipment_id}, awb=${result.awb_number}`);
+        } else {
+          const reason = result?.error || 'Shiprocket did not return a valid AWB code.';
+          console.warn(`[Shipping] Shiprocket shipment considered FAILED: ${reason}`);
+          throw new Error(reason);
+        }
+      } catch (srErr) {
+        shiprocketError = srErr.message || 'Unknown Shiprocket error';
+        console.warn(`[Shipping] Shiprocket failed: ${shiprocketError}`);
       }
 
-      const provider = shippingFactory.getProvider(providerName);
+      // ============================================================
+      // STEP 2: Fallback to Delhivery (if Shiprocket failed)
+      // ============================================================
+      if (!result || !result.success || !result.awb_number || result.awb_number.toString().trim() === '') {
+        console.log(`[Shipping] Falling back to Delhivery for Order: ${orderId}`);
+        console.log(`[Shipping] Delhivery request started`);
 
-      // 4. Call provider to trigger shipment creation
-      const result = await provider.createShipment(orderId, orderDetails, pickupSettings);
-      
-      // 5. Update order details in the database
+        try {
+          result = await delhiveryProvider.createShipment(orderId, orderDetails, pickupSettings);
+          if (result && result.success && (result.shipment_id || result.awb_number)) {
+            actualProviderUsed = 'Delhivery';
+            console.log(`[Shipping] Delhivery shipment created successfully: shipmentId=${result.shipment_id || 'N/A'}, awb=${result.awb_number || 'N/A'}`);
+          } else {
+            throw new Error(result?.error || 'Delhivery did not return a valid shipment ID or AWB.');
+          }
+        } catch (dlErr) {
+          const delhiveryError = dlErr.message || 'Unknown Delhivery error';
+          console.error(`[Shipping] Delhivery failed: ${delhiveryError}`);
+
+          // Record failure status in database without generating any fake shipment/AWB
+          if (supabaseClient) {
+            await safeOrderUpdate(supabaseClient, orderId, {
+              shipping_status: 'Shipment Failed',
+              shipping_provider: null,
+              shipment_id: null,
+              awb_number: null
+            }).catch(() => {});
+          }
+
+          throw new Error(`Shipment creation failed on all providers. Shiprocket: "${shiprocketError}" | Delhivery: "${delhiveryError}"`);
+        }
+      }
+
+      // ============================================================
+      // STEP 3: Record Successful Shipment in Database
+      // ============================================================
       if (supabaseClient) {
         const isShipped = result.status === 'Picked Up' || result.status === 'In Transit' || result.status === 'Out For Delivery';
         await safeOrderUpdate(supabaseClient, orderId, {
-          shipping_provider: providerName,
+          shipping_provider: actualProviderUsed,
           shipment_id: result.shipment_id || null,
           awb_number: result.awb_number || null,
           courier_name: result.courier_name || null,
-          tracking_number: result.tracking_number || null,
+          tracking_number: result.tracking_number || result.awb_number || null,
           tracking_url: result.tracking_url || null,
           shipping_status: result.status || 'Shipment Created',
           estimated_delivery: result.estimated_delivery || null,
@@ -284,14 +348,24 @@ export const shippingService = {
           pickup_id: result.pickup_id || null
         });
       } else {
-        // Fallback mock update in memory
-        console.log(`✅ [shippingService.createShipment]: Offline mock database sync complete.`);
+        // In-memory mock database update for offline testing
+        if (orderDetails) {
+          orderDetails.shipping_provider = actualProviderUsed;
+          orderDetails.shipment_id = result.shipment_id || null;
+          orderDetails.awb_number = result.awb_number || null;
+          orderDetails.courier_name = result.courier_name || null;
+          orderDetails.tracking_number = result.tracking_number || result.awb_number || null;
+          orderDetails.tracking_url = result.tracking_url || null;
+          orderDetails.shipping_status = result.status || 'Shipment Created';
+          orderDetails.estimated_delivery = result.estimated_delivery || null;
+        }
+        console.log(`✅ [Shipping] Offline mock database sync complete.`);
       }
 
-      console.log(`✅ [shippingService.createShipment]: Shipment created successfully for Order: ${orderId}. AWB: ${result.awb_number}`);
+      console.log(`✅ [Shipping] Shipment created successfully via ${actualProviderUsed} for Order: ${orderId}. AWB: ${result.awb_number}`);
       return result;
     } catch (e) {
-      console.error(`❌ [shippingService.createShipment] Failed for Order ${orderId}:`, e.message);
+      console.error(`❌ [Shipping] Failed for Order ${orderId}:`, e.message);
       throw e;
     }
   },
@@ -473,39 +547,221 @@ export const shippingService = {
   },
 
   /**
-   * Calculate shipping charges dynamically using the active provider
+   * Calculate multi-seller shipping with Shiprocket as Primary and Delhivery as Fallback.
+   * Supports grouping items by store_id and calculating shipping per seller shipment independently.
    */
-  calculateShippingCost: async ({ storeId, destinationPincode, paymentMode, cartItems }) => {
-    if (!storeId) throw new Error('Store ID is required to calculate shipping cost.');
-    if (!destinationPincode || destinationPincode.replace(/\D/g, '').length !== 6) {
-      throw new Error('Destination pincode must be exactly 6 digits.');
+  calculateShippingCost: async ({ storeId, destinationPincode, paymentMode = 'Prepaid', cartItems = [] }) => {
+    const cleanDest = (destinationPincode || '').toString().trim().replace(/\D/g, '');
+    if (!cleanDest || cleanDest.length !== 6) {
+      return {
+        success: false,
+        serviceable: false,
+        message: 'Destination pincode must be exactly 6 digits.',
+        total_amount: 0,
+        shipments: []
+      };
     }
 
-    // 1. Fetch shipping settings for the store to get the origin pincode
-    const pickupSettings = await shippingService.getShippingSettings(storeId);
-    if (!pickupSettings || !pickupSettings.pincode) {
-      throw new Error('Store has not configured their shipping pickup address/pincode.');
-    }
-    const originPincode = pickupSettings.pincode.trim();
-
-    // 2. Calculate weight. Since we do not want to modify the DB schema, we check if weight is in the items.
-    // Default weight is 500 grams (0.5 kg) per item.
-    let totalWeightInGrams = 0;
-    for (const item of (cartItems || [])) {
-      const quantity = parseInt(item.quantity) || 1;
-      const itemWeight = parseFloat(item.weight || item.product_weight) || 500; // Default to 500g if missing
-      totalWeightInGrams += quantity * itemWeight;
+    if (!cartItems || !Array.isArray(cartItems) || cartItems.length === 0) {
+      return {
+        success: false,
+        serviceable: false,
+        message: 'Cart is empty.',
+        total_amount: 0,
+        shipments: []
+      };
     }
 
-    // 3. Resolve active provider
-    const providerName = process.env.NEXT_PUBLIC_ACTIVE_SHIPPING_PROVIDER || 'Delhivery';
-    const provider = shippingFactory.getProvider(providerName);
-
-    if (!provider || typeof provider.calculateShippingCost !== 'function') {
-      throw new Error(`Shipping provider "${providerName}" does not support cost calculation.`);
+    // Group items by store_id (if item.store_id is missing, fallback to passed storeId)
+    const storeGroups = {};
+    for (const item of cartItems) {
+      const sId = item.store_id || storeId || 'unknown';
+      if (!storeGroups[sId]) {
+        storeGroups[sId] = [];
+      }
+      storeGroups[sId].push(item);
     }
 
-    return await provider.calculateShippingCost(originPincode, destinationPincode, totalWeightInGrams, paymentMode);
+    const shiprocketProvider = shippingFactory.getProvider('Shiprocket');
+    const delhiveryProvider = shippingFactory.getProvider('Delhivery');
+
+    let totalShippingCost = 0;
+    const shipments = [];
+    let allServiceable = true;
+    const unserviceableReasons = [];
+
+    for (const [currentStoreId, items] of Object.entries(storeGroups)) {
+      if (currentStoreId === 'unknown') {
+        allServiceable = false;
+        unserviceableReasons.push('Missing store/seller identifier for some products.');
+        continue;
+      }
+
+      // 1. Fetch store's pickup settings
+      const pickupSettings = await shippingService.getShippingSettings(currentStoreId);
+      const originPincode = (pickupSettings?.pincode || '').toString().trim().replace(/\D/g, '');
+
+      if (!originPincode || originPincode.length !== 6) {
+        allServiceable = false;
+        const msg = `Store (ID: ${currentStoreId}) has not configured a valid 6-digit pickup pincode.`;
+        unserviceableReasons.push(msg);
+        shipments.push({
+          sellerId: currentStoreId,
+          storeId: currentStoreId,
+          serviceable: false,
+          reason: msg,
+          shippingCost: 0
+        });
+        continue;
+      }
+
+      // 2. Calculate shipment weight and package dimensions
+      let shipmentWeightInGrams = 0;
+      let orderValue = 0;
+      let missingWeightCount = 0;
+
+      for (const it of items) {
+        const qty = parseInt(it.quantity) || 1;
+        const price = parseFloat(it.price) || 0;
+        orderValue += qty * price;
+
+        const rawWeight = it.weight !== undefined && it.weight !== null ? it.weight : it.product_weight;
+        if (rawWeight !== undefined && rawWeight !== null && !isNaN(parseFloat(rawWeight)) && parseFloat(rawWeight) > 0) {
+          shipmentWeightInGrams += qty * parseFloat(rawWeight);
+        } else {
+          missingWeightCount += qty;
+          shipmentWeightInGrams += qty * 500; // Documented default fallback of 500g per unit
+        }
+      }
+
+      if (missingWeightCount > 0) {
+        console.warn(`ℹ️ [shippingService.calculateShippingCost]: ${missingWeightCount} item(s) for store ${currentStoreId} missing explicit weight, using 500g/unit fallback.`);
+      }
+
+      const dimensions = {
+        length: 15,
+        breadth: 15,
+        height: 15
+      };
+
+      // Diagnostic logging (WITHOUT API credentials or sensitive tokens)
+      console.log(`\n================== SHIPPING ATTEMPT ==================`);
+      console.log(`Seller / Store ID   : ${currentStoreId}`);
+      console.log(`Pickup Pincode      : ${originPincode}`);
+      console.log(`Delivery Pincode    : ${cleanDest}`);
+      console.log(`Shipment Weight     : ${shipmentWeightInGrams}g`);
+      console.log(`Payment Mode        : ${paymentMode}`);
+      console.log(`Order Value         : ₹${orderValue}`);
+      console.log(`Provider Attempt 1  : Shiprocket (Primary)`);
+
+      let selectedShipment = null;
+
+      // ATTEMPT 1: Primary -> Shiprocket
+      try {
+        const srResult = await shiprocketProvider.calculateShippingCost(
+          originPincode,
+          cleanDest,
+          shipmentWeightInGrams,
+          paymentMode,
+          dimensions,
+          orderValue
+        );
+
+        console.log(`Shiprocket Result   : Serviceable=${srResult?.serviceable} | Amount=₹${srResult?.total_amount || 0} | Reason=${srResult?.reason || 'OK'}`);
+
+        if (srResult && srResult.success && srResult.serviceable && srResult.total_amount > 0) {
+          selectedShipment = {
+            sellerId: currentStoreId,
+            storeId: currentStoreId,
+            provider: 'Shiprocket',
+            pickupPincode: originPincode,
+            deliveryPincode: cleanDest,
+            destinationPincode: cleanDest,
+            shippingCost: srResult.total_amount,
+            estimatedDelivery: srResult.estimated_delivery || null,
+            courierName: srResult.courier_name || 'Shiprocket Courier',
+            serviceable: true
+          };
+          console.log(`Selected Provider   : Shiprocket (Primary succeeded)`);
+        }
+      } catch (srErr) {
+        console.warn(`⚠️ [shippingService]: Shiprocket attempt exception:`, srErr.message);
+      }
+
+      // ATTEMPT 2: Fallback -> Delhivery (if Shiprocket was not serviceable / failed)
+      if (!selectedShipment) {
+        console.log(`Provider Attempt 2  : Delhivery (Fallback triggered)`);
+        try {
+          const dlResult = await delhiveryProvider.calculateShippingCost(
+            originPincode,
+            cleanDest,
+            shipmentWeightInGrams,
+            paymentMode
+          );
+
+          console.log(`Delhivery Result    : Serviceable=${dlResult?.serviceable} | Amount=₹${dlResult?.total_amount || 0} | Reason=${dlResult?.reason || 'OK'}`);
+
+          if (dlResult && dlResult.success && dlResult.serviceable && dlResult.total_amount > 0) {
+            selectedShipment = {
+              sellerId: currentStoreId,
+              storeId: currentStoreId,
+              provider: 'Delhivery',
+              pickupPincode: originPincode,
+              deliveryPincode: cleanDest,
+              destinationPincode: cleanDest,
+              shippingCost: dlResult.total_amount,
+              estimatedDelivery: dlResult.estimated_delivery || null,
+              courierName: 'Delhivery Express',
+              serviceable: true
+            };
+            console.log(`Selected Provider   : Delhivery (Fallback succeeded)`);
+          } else {
+            console.warn(`⚠️ [shippingService]: Delhivery fallback was also unserviceable:`, dlResult?.reason || 'Unserviceable');
+          }
+        } catch (dlErr) {
+          console.warn(`⚠️ [shippingService]: Delhivery fallback exception:`, dlErr.message);
+        }
+      }
+
+      console.log(`======================================================\n`);
+
+      if (selectedShipment && selectedShipment.serviceable) {
+        totalShippingCost += selectedShipment.shippingCost;
+        shipments.push(selectedShipment);
+      } else {
+        allServiceable = false;
+        const failReason = `Route ${originPincode} → ${cleanDest} is not serviceable by Shiprocket or Delhivery.`;
+        unserviceableReasons.push(failReason);
+        shipments.push({
+          sellerId: currentStoreId,
+          storeId: currentStoreId,
+          provider: 'None',
+          pickupPincode: originPincode,
+          deliveryPincode: cleanDest,
+          destinationPincode: cleanDest,
+          shippingCost: 0,
+          serviceable: false,
+          reason: failReason
+        });
+      }
+    }
+
+    if (!allServiceable) {
+      return {
+        success: false,
+        serviceable: false,
+        message: unserviceableReasons.join('; ') || 'Some seller shipments are not serviceable.',
+        total_amount: 0,
+        shipments
+      };
+    }
+
+    return {
+      success: true,
+      serviceable: true,
+      total_amount: parseFloat(totalShippingCost.toFixed(2)),
+      shipments
+    };
   }
 };
 

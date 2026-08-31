@@ -30,6 +30,13 @@ export function StoreProvider({ children }) {
         setLoadingDbCart(true);
         try {
           const dbCart = await cartService.getOrCreateCart(customerProfile.id);
+          
+          if (!dbCart || !dbCart.id) {
+            setDbCartId(null);
+            setCart([]);
+            return;
+          }
+
           setDbCartId(dbCart.id);
 
           // Get guest cart items from sessionStorage or localStorage
@@ -53,9 +60,10 @@ export function StoreProvider({ children }) {
             finalItems = await cartService.getCartItems(dbCart.id);
           }
 
-          setCart(finalItems);
+          setCart(finalItems || []);
         } catch (err) {
           console.warn('⚠️ [StoreContext] Failed to load/sync database cart:', err);
+          setCart([]);
         } finally {
           setLoadingDbCart(false);
         }
@@ -136,9 +144,13 @@ export function StoreProvider({ children }) {
         let activeCartId = dbCartId;
         if (!activeCartId) {
           const dbCart = await cartService.getOrCreateCart(customerProfile.id);
-          activeCartId = dbCart.id;
-          setDbCartId(activeCartId);
+          activeCartId = dbCart?.id;
+          if (activeCartId) {
+            setDbCartId(activeCartId);
+          }
         }
+        if (!activeCartId) return;
+
         if (changedProductId) {
           if (newQty === 0) {
             await cartService.removeCartItem(activeCartId, changedProductId);

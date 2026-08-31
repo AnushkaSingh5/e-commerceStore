@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { Cashfree } from 'cashfree-pg';
+import { Cashfree, CFEnvironment } from 'cashfree-pg';
 import { supabaseClient } from '@/lib/supabase';
 
 export async function POST(request) {
@@ -33,10 +33,17 @@ export async function POST(request) {
     const clientId = process.env.CASHFREE_CLIENT_ID;
     const clientSecret = process.env.CASHFREE_CLIENT_SECRET;
 
-    console.log('🔑 [create-session] Current env check:');
-    console.log('   - CASHFREE_CLIENT_ID:', clientId ? `${clientId.slice(0, 4)}... (length: ${clientId.length})` : 'undefined / not loaded');
-    console.log('   - CASHFREE_CLIENT_SECRET:', clientSecret ? `${clientSecret.slice(0, 4)}... (length: ${clientSecret.length})` : 'undefined / not loaded');
-    console.log('   - NEXT_PUBLIC_ACTIVE_PAYMENT_PROVIDER:', process.env.NEXT_PUBLIC_ACTIVE_PAYMENT_PROVIDER);
+    const isProduction = process.env.CASHFREE_ENV === 'PRODUCTION' || 
+                         process.env.NEXT_PUBLIC_CASHFREE_ENV === 'PRODUCTION' ||
+                         (clientSecret && clientSecret.startsWith('cfsk_ma_prod_'));
+
+    console.log('[Cashfree] Environment:', isProduction ? 'PRODUCTION' : 'SANDBOX');
+    console.log('[Cashfree] Client ID present:', Boolean(clientId));
+    console.log('[Cashfree] Client ID length:', clientId?.length || 0);
+    console.log('[Cashfree] Secret present:', Boolean(clientSecret));
+    console.log('[Cashfree] Secret length:', clientSecret?.length || 0);
+    console.log('[Cashfree] Secret prefix:', clientSecret ? clientSecret.slice(0, 15) + '...' : 'N/A');
+    console.log('[Cashfree] API endpoint:', isProduction ? 'https://api.cashfree.com/pg/orders' : 'https://sandbox.cashfree.com/pg/orders');
 
     // If API credentials are not configured, generate a Mock session for local development
     if (!clientId || !clientSecret) {
@@ -49,10 +56,7 @@ export async function POST(request) {
     }
 
     // Configure Cashfree SDK
-    const environment = process.env.CASHFREE_ENV === 'PRODUCTION' 
-      ? Cashfree.PRODUCTION 
-      : Cashfree.SANDBOX;
-
+    const environment = isProduction ? CFEnvironment.PRODUCTION : CFEnvironment.SANDBOX;
     const cashfree = new Cashfree(environment, clientId, clientSecret);
 
     // Build return redirect URL

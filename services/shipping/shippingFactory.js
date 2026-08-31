@@ -14,15 +14,18 @@ class ShippingFactory {
    * Get the configured active shipping provider instance
    */
   getProvider(providerName) {
-    const activeProvider = providerName || process.env.NEXT_PUBLIC_ACTIVE_SHIPPING_PROVIDER || 'Delhivery';
-    const provider = this.providers[activeProvider];
+    const rawName = providerName || process.env.NEXT_PUBLIC_ACTIVE_SHIPPING_PROVIDER || 'Shiprocket';
+    const nameLower = rawName.toLowerCase();
     
-    if (!provider) {
-      console.warn(`⚠️ [ShippingFactory]: Provider "${activeProvider}" not found. Falling back to Delhivery.`);
+    if (nameLower.includes('shiprocket')) {
+      return this.providers['Shiprocket'];
+    }
+    if (nameLower.includes('delhivery')) {
       return this.providers['Delhivery'];
     }
     
-    return provider;
+    console.warn(`⚠️ [ShippingFactory]: Provider "${rawName}" not recognized. Defaulting to Shiprocket.`);
+    return this.providers['Shiprocket'];
   }
 }
 

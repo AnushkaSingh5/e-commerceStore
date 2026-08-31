@@ -775,41 +775,49 @@ export class DelhiveryProvider {
       }
 
       const data = await response.json();
-      console.log('✅ [DelhiveryProvider] Tracking details:', data);
+      console.log('✅ [DelhiveryProvider] Tracking details received.');
 
-      const scans = data.ScanData || data.scans || [];
-      let currentStatus = 'Shipment Created';
-      let estimatedDelivery = '';
+      const shipment = data.ShipmentData?.[0]?.Shipment || data;
+      const rawScans = shipment.Scans || data.ScanData || data.scans || [];
+      const scans = Array.isArray(rawScans) ? rawScans : [];
+      
+      let currentStatus = shipment.Status?.Status || shipment.Status?.Instructions || 'Shipment Created';
+      let estimatedDelivery = shipment.ExpectedDeliveryDate || shipment.PromisedDeliveryDate || '';
 
       if (scans.length > 0) {
         const latestScan = scans[scans.length - 1];
-        currentStatus = latestScan.Status || latestScan.Scan || currentStatus;
+        const detail = latestScan.ScanDetail || latestScan;
+        currentStatus = detail.Scan || detail.Status || detail.Instructions || currentStatus;
       }
 
-      if (currentStatus.toLowerCase().includes('pending') || currentStatus.toLowerCase().includes('schedule')) {
+      const statusLower = currentStatus.toLowerCase();
+      if (statusLower.includes('pending') || statusLower.includes('schedule')) {
         currentStatus = 'Pending';
-      } else if (currentStatus.toLowerCase().includes('manifest') || currentStatus.toLowerCase().includes('picked')) {
+      } else if (statusLower.includes('manifest') || statusLower.includes('picked') || statusLower.includes('x-uci') || statusLower.includes('dtup')) {
         currentStatus = 'Picked Up';
-      } else if (currentStatus.toLowerCase().includes('transit') || currentStatus.toLowerCase().includes('shipment forwarded')) {
+      } else if (statusLower.includes('transit') || statusLower.includes('shipment forwarded')) {
         currentStatus = 'In Transit';
-      } else if (currentStatus.toLowerCase().includes('out for delivery') || currentStatus.toLowerCase().includes('pending delivery')) {
+      } else if (statusLower.includes('out for delivery') || statusLower.includes('pending delivery')) {
         currentStatus = 'Out For Delivery';
-      } else if (currentStatus.toLowerCase().includes('del') || currentStatus.toLowerCase().includes('delivered')) {
+      } else if (statusLower.includes('del') || statusLower.includes('delivered')) {
         currentStatus = 'Delivered';
-      } else if (currentStatus.toLowerCase().includes('cancel') || currentStatus.toLowerCase().includes('rto')) {
+      } else if (statusLower.includes('cancel') || statusLower.includes('rto')) {
         currentStatus = 'Cancelled';
       }
 
-      const events = scans.map(s => ({
-        status: s.Status || s.Scan || 'Updated',
-        time: s.DateTime || s.ScanDateTime || new Date().toISOString(),
-        location: s.Location || s.ScannedLocation || ''
-      }));
+      const events = scans.map(s => {
+        const detail = s.ScanDetail || s;
+        return {
+          status: detail.Scan || detail.Status || detail.Instructions || 'Updated',
+          time: detail.ScanDateTime || detail.StatusDateTime || detail.DateTime || new Date().toISOString(),
+          location: detail.ScannedLocation || detail.StatusLocation || detail.Location || ''
+        };
+      });
 
       return {
         status: currentStatus,
         estimated_delivery: estimatedDelivery || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB'),
-        events: events.length > 0 ? events : [{ status: 'Shipment Manifested', time: new Date().toISOString(), location: 'Warehouse' }]
+        events: events.length > 0 ? events : [{ status: 'Shipment Manifested', time: new Date().toISOString(), location: shipment.PickupLocation || 'Warehouse' }]
       };
     } catch (e) {
       console.error('❌ [DelhiveryProvider.getTrackingStatus] Failed:', e.message);
@@ -837,7 +845,7 @@ export class DelhiveryProvider {
       
       // Simulate unserviceable pincode for testing
       if (cleanDest === '999999' || cleanDest.startsWith('999')) {
-        throw new Error('Pincode not serviceable by Delhivery.');
+        return { success: false, serviceable: false, provider: 'Delhivery', reason: 'Pincode not serviceable by Delhivery.' };
       }
 
       // Simulated calculation: base ₹60 + ₹15 per 500g + ₹40 COD surcharge if applicable
@@ -848,10 +856,12 @@ export class DelhiveryProvider {
 
       return {
         success: true,
+        serviceable: true,
+        provider: 'Delhivery',
         total_amount: mockTotal,
         gross_amount: mockTotal - codFee,
         tax_amount: 0,
-        serviceable: true
+        estimated_delivery: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB')
       };
     }
 
@@ -879,17 +889,24 @@ export class DelhiveryProvider {
       if (!response.ok) {
         const errorText = await response.text();
         console.error(`❌ [DelhiveryProvider.calculateShippingCost] API error: ${response.status} - ${errorText}`);
-        if (response.status === 400 || response.status === 404) {
-          throw new Error('Pincode not serviceable by Delhivery.');
-        }
-        throw new Error(`Delhivery cost calculation failed: ${response.statusText}`);
+        return {
+          success: false,
+          serviceable: false,
+          provider: 'Delhivery',
+          reason: response.status === 400 || response.status === 404 ? 'Pincode not serviceable by Delhivery.' : `Delhivery cost calculation failed (HTTP ${response.status})`
+        };
       }
 
       const data = await response.json();
       console.log('✅ [DelhiveryProvider] Cost calculation API response:', data);
 
       if (!data || (Array.isArray(data) && data.length === 0)) {
-        throw new Error('Pincode not serviceable by Delhivery.');
+        return {
+          success: false,
+          serviceable: false,
+          provider: 'Delhivery',
+          reason: 'Pincode not serviceable by Delhivery.'
+        };
       }
 
       let chargeInfo = null;
@@ -900,13 +917,23 @@ export class DelhiveryProvider {
       }
 
       if (!chargeInfo) {
-        throw new Error('Pincode not serviceable by Delhivery.');
+        return {
+          success: false,
+          serviceable: false,
+          provider: 'Delhivery',
+          reason: 'Pincode not serviceable by Delhivery.'
+        };
       }
 
       // Parse the charge fields returned by Delhivery
       const totalAmount = parseFloat(chargeInfo.total_amount || chargeInfo.gross_amount || chargeInfo.charges);
       if (isNaN(totalAmount)) {
-        throw new Error('Failed to retrieve valid shipping charges from Delhivery response.');
+        return {
+          success: false,
+          serviceable: false,
+          provider: 'Delhivery',
+          reason: 'Failed to retrieve valid shipping charges from Delhivery response.'
+        };
       }
 
       // Add COD surcharge if COD is selected (often not included in base rate API)
@@ -917,13 +944,20 @@ export class DelhiveryProvider {
 
       return {
         success: true,
+        serviceable: true,
+        provider: 'Delhivery',
         total_amount: finalTotal,
         gross_amount: totalAmount,
-        serviceable: true
+        estimated_delivery: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB')
       };
     } catch (err) {
       console.error('❌ [DelhiveryProvider.calculateShippingCost] Failed:', err.message);
-      throw err;
+      return {
+        success: false,
+        serviceable: false,
+        provider: 'Delhivery',
+        reason: err.message || 'Delhivery serviceability query failed.'
+      };
     }
   }
 }

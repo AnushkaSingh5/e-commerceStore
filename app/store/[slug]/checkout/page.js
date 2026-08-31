@@ -89,11 +89,11 @@ export default function StoreCheckoutPage({ params }) {
         })
       });
       const data = await response.json();
-      if (data && data.success) {
+      if (data && data.success && data.serviceable) {
         setCalculatedShippingCost(data.total_amount);
       } else {
         setCalculatedShippingCost(null);
-        setShippingError(data.message || 'Pincode not serviceable by Delhivery.');
+        setShippingError(data?.message || 'Pincode not serviceable by available shipping carriers.');
       }
     } catch (err) {
       console.error('Error calculating shipping:', err);

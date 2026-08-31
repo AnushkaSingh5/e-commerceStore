@@ -24,6 +24,7 @@ export const orderService = {
     shipping_address_country,
     total_amount,
     shipping_cost = 0,
+    shipping_provider = null,
     items,
     payment_provider = 'Razorpay',
     coupon_id = null,
@@ -40,8 +41,19 @@ export const orderService = {
         customer_email,
         customer_phone,
         shipping_address,
+        shipping_address_line1,
+        shipping_address_line2,
+        shipping_address_city,
+        shipping_address_state,
+        shipping_address_pincode,
+        shipping_address_country,
+        shipping_city: shipping_address_city,
+        shipping_state: shipping_address_state,
+        shipping_country: shipping_address_country || 'India',
+        shipping_pincode: shipping_address_pincode,
         total_amount: parseFloat(total_amount) || 0,
         shipping_cost: parseFloat(shipping_cost) || 0,
+        shipping_provider: shipping_provider || 'Shiprocket',
         status: payment_provider === 'COD' ? 'confirmed' : 'pending_payment',
         payment_status: 'pending',
         payment_provider,
@@ -75,123 +87,55 @@ export const orderService = {
         }
       }
 
-      // 1. Insert Order
+      // 1. Insert Order matching real Supabase schema
       const payload = {
         store_id,
-        customer_id,
+        customer_id: customer_id || null,
         customer_name,
         customer_email,
         customer_phone,
-        shipping_address,
-        shipping_address_line1,
-        shipping_address_line2,
-        shipping_address_city,
-        shipping_address_state,
-        shipping_address_pincode,
-        shipping_address_country,
-        shipping_city: shipping_address_city,
-        shipping_state: shipping_address_state,
-        shipping_country: shipping_address_country || 'India',
-        shipping_pincode: shipping_address_pincode,
+        shipping_address: shipping_address || [
+          shipping_address_line1,
+          shipping_address_line2,
+          `${shipping_address_city}, ${shipping_address_state} - ${shipping_address_pincode}`,
+          shipping_address_country || 'India'
+        ].filter(Boolean).join('\n'),
+        shipping_address_line1: shipping_address_line1 || null,
+        shipping_address_line2: shipping_address_line2 || null,
+        shipping_address_city: shipping_address_city || null,
+        shipping_address_state: shipping_address_state || null,
+        shipping_address_pincode: shipping_address_pincode || null,
+        shipping_address_country: shipping_address_country || 'India',
         total_amount: parseFloat(total_amount) || 0,
-        shipping_cost: parseFloat(shipping_cost) || 0,
+        shipping_provider: shipping_provider || null,
         status: payment_provider === 'COD' ? 'confirmed' : 'pending_payment',
         payment_status: 'pending',
-        payment_provider,
+        payment_provider: payment_provider || 'Cashfree',
         coupon_id: coupon_id || null,
         coupon_code: coupon_code || null,
         discount_amount: parseFloat(discount_amount) || 0
       };
 
-      let result;
-      let attempts = 0;
-      const maxAttempts = 15;
-      while (attempts < maxAttempts) {
-        result = await supabaseClient
-          .from('orders')
-          .insert([payload])
-          .select()
-          .single();
+      console.log(`🔄 [orderService.createOrder] Inserting order into Supabase for store ${store_id}...`);
+      const { data: order, error: orderErr } = await supabaseClient
+        .from('orders')
+        .insert([payload])
+        .select()
+        .single();
 
-        if (!result.error) {
-          break;
-        }
-
-        const err = result.error;
-        console.warn(`⚠️ [orderService.createOrder] Attempt ${attempts + 1} failed:`, err.message);
-
-        // Check if check constraint error on 'status' with 'pending_payment'
-        if (err.code === '23514' && payload.status === 'pending_payment') {
-          console.warn('🔄 [orderService.createOrder] Status check constraint failed. Falling back to status = "Pending".');
-          payload.status = 'Pending';
-          attempts++;
-          continue;
-        }
-
-        // If it's a missing column error (PostgreSQL 42703, or PostgREST schema cache error)
-        const isMissingColumnError = 
-          err.code === '42703' || 
-          err.code === 'PGRST200' || 
-          err.code === 'PGRST204' || 
-          err.status === 400 ||
-          (err.message && (
-            err.message.includes('schema cache') || 
-            err.message.includes('Could not find the') || 
-            err.message.includes('column')
-          ));
-
-        if (isMissingColumnError) {
-          // Parse the column name from the error message
-          // Standard PostgreSQL: column "shipping_address_2" of relation "orders"
-          // PostgREST: Could not find the 'shipping_address_2' column of 'orders' in the schema cache
-          const match = err.message.match(/column "([^"]+)"/) || 
-                        err.message.match(/Could not find the '([^']+)' column/) ||
-                        err.message.match(/column '([^']+)'/);
-
-          if (match && match[1]) {
-            const col = match[1];
-            console.warn(`🔄 [orderService.createOrder] Stripping missing column "${col}" from payload and retrying...`);
-            delete payload[col];
-            attempts++;
-            continue;
-          } else {
-            // Fallback: strip known optional/new columns
-            console.warn('🔄 [orderService.createOrder] Could not parse column name. Stripping optional/new columns...');
-            const optionalCols = [
-              'shipping_address_2', 'shipping_city', 'shipping_state', 'shipping_country', 'shipping_pincode',
-              'shipping_address_line1', 'shipping_address_line2', 'shipping_address_city', 'shipping_address_state',
-              'shipping_address_pincode', 'shipping_address_country', 'payment_status', 'payment_provider',
-              'coupon_id', 'coupon_code', 'discount_amount'
-            ];
-            let stripped = false;
-            for (const col of optionalCols) {
-              if (col in payload) {
-                delete payload[col];
-                stripped = true;
-              }
-            }
-            if (!stripped) break;
-            attempts++;
-            continue;
-          }
-        }
-        break;
-      }
-
-      const { data: order, error: orderErr } = result;
       if (orderErr) {
-        console.error('❌ [orderService.createOrder] Failed to create order even after fallbacks. Full response:', JSON.stringify(orderErr, null, 2));
+        console.error('❌ [orderService.createOrder] Database insertion error:', orderErr.message);
         throw orderErr;
       }
 
-      // 2. Insert Order Items
+      // 2. Insert Order Items matching real Supabase schema
       const orderItemsInput = items.map(item => ({
         order_id: order.id,
-        product_id: item.id,
+        product_id: item.id || item.product_id,
         quantity: parseInt(item.quantity) || 1,
         price: parseFloat(item.price) || 0,
-        snap_product_name: item.name || 'Unknown Product',
-        snap_product_image: item.image || null
+        snap_product_name: item.name || item.productName || item.snap_product_name || 'Unknown Product',
+        snap_product_image: item.image || item.image_url || item.snap_product_image || null
       }));
 
       const { error: itemsErr } = await supabaseClient
@@ -199,15 +143,16 @@ export const orderService = {
         .insert(orderItemsInput);
 
       if (itemsErr) {
-        console.error('[orderService]: Failed to insert order items, rolling back order.', itemsErr);
-        // Attempt cleanup of orphan order row
-        await supabaseClient.from('orders').delete().eq('id', order.id);
+        console.error('❌ [orderService.createOrder]: Failed to insert order items, rolling back order:', itemsErr.message);
+        // Clean up orphan order row
+        await supabaseClient.from('orders').delete().eq('id', order.id).catch(() => {});
         throw itemsErr;
       }
 
+      console.log(`✅ [orderService.createOrder] Order created successfully in database: ${order.id}`);
       return { ...order, success: true };
     } catch (e) {
-      console.error('[orderService]: Place order exception:', e);
+      console.error('[orderService.createOrder]: Place order exception:', e.message);
       throw e;
     }
   },

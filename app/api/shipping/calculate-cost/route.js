@@ -18,17 +18,18 @@ export async function POST(request) {
 
     const { storeId, destinationPincode, paymentMode, cartItems } = body;
 
-    if (!storeId) {
-      return NextResponse.json({ success: false, message: 'Missing required storeId in request body.' }, { status: 400 });
+    const hasStoreId = storeId || (Array.isArray(cartItems) && cartItems.some(i => i.store_id));
+    if (!hasStoreId) {
+      return NextResponse.json({ success: false, serviceable: false, message: 'Missing required storeId or items with store_id in request body.' }, { status: 400 });
     }
-    if (!destinationPincode) {
-      return NextResponse.json({ success: false, message: 'Missing required destinationPincode in request body.' }, { status: 400 });
+    if (!destinationPincode || destinationPincode.toString().trim().replace(/\D/g, '').length !== 6) {
+      return NextResponse.json({ success: false, serviceable: false, message: 'Missing or invalid 6-digit destinationPincode in request body.' }, { status: 400 });
     }
-    if (!cartItems || !Array.isArray(cartItems)) {
-      return NextResponse.json({ success: false, message: 'Missing or invalid cartItems in request body.' }, { status: 400 });
+    if (!cartItems || !Array.isArray(cartItems) || cartItems.length === 0) {
+      return NextResponse.json({ success: false, serviceable: false, message: 'Missing or empty cartItems in request body.' }, { status: 400 });
     }
 
-    console.log(`🔄 [api/shipping/calculate-cost]: Calculating shipping cost for store: ${storeId}, destination: ${destinationPincode}, mode: ${paymentMode}`);
+    console.log(`🔄 [api/shipping/calculate-cost]: Calculating shipping cost for destination: ${destinationPincode}, mode: ${paymentMode || 'Prepaid'}, items count: ${cartItems.length}`);
 
     const result = await shippingService.calculateShippingCost({
       storeId,
@@ -37,11 +38,11 @@ export async function POST(request) {
       cartItems
     });
 
-    console.log(`📤 [API Response] Status: 200 | Body:`, JSON.stringify(result));
+    console.log(`📤 [API Response] Serviceable: ${result.serviceable} | Total Amount: ₹${result.total_amount || 0}`);
     return NextResponse.json(result);
   } catch (error) {
     const errMsg = error.message || 'Internal Server Error during shipping cost calculation.';
     console.error(`❌ [api/shipping/calculate-cost]: Failed to calculate shipping cost:`, errMsg);
-    return NextResponse.json({ success: false, message: errMsg }, { status: 400 });
+    return NextResponse.json({ success: false, serviceable: false, message: errMsg }, { status: 500 });
   }
 }

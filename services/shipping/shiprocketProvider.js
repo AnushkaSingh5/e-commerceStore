@@ -5,16 +5,23 @@ let tokenExpiry = null;
 
 export class ShiprocketProvider {
   constructor() {
-    this.email = process.env.SHIPROCKET_EMAIL;
-    this.password = process.env.SHIPROCKET_PASSWORD;
-    this.isMock = !this.email || !this.password || this.email.trim() === '' || this.password.trim() === '';
     this.apiBase = 'https://apiv2.shiprocket.in/v1/external';
+    this._refreshCredentials();
+  }
+
+  _refreshCredentials() {
+    const rawEmail = process.env.SHIPROCKET_EMAIL || '';
+    const rawPassword = process.env.SHIPROCKET_PASSWORD || '';
+    this.email = rawEmail.trim().replace(/^["']|["']$/g, '');
+    this.password = rawPassword.trim().replace(/^["']|["']$/g, '');
+    this.isMock = !this.email || !this.password || this.email === '' || this.password === '';
   }
 
   /**
    * Securely retrieve or refresh JWT Auth Token
    */
   async _getToken() {
+    this._refreshCredentials();
     if (this.isMock) return 'mock_token_123';
 
     // Return cached token if valid (tokens are valid for 10 days, we refresh after 9 days)
@@ -32,11 +39,8 @@ export class ShiprocketProvider {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        let errMsg = errorData.message || `Auth failed with status ${response.status}`;
-        if (response.status === 403 || errMsg.toLowerCase().includes('forbidden')) {
-          errMsg = "Shiprocket API authentication failed (Access Forbidden). Please verify that you are using the specific API User email and password (configured under Settings -> API in the Shiprocket Panel), NOT your primary account login credentials.";
-        }
-        throw new Error(errMsg);
+        const errMsg = errorData.message || `Auth failed with status ${response.status}`;
+        throw new Error(`Shiprocket auth failed (HTTP ${response.status}): ${errMsg}`);
       }
 
       const data = await response.json();
@@ -229,7 +233,13 @@ export class ShiprocketProvider {
       let selectedPickupLocationId = '';
       const configuredName = (pickupSettings?.warehouse_name || '').trim();
 
-      const matchedLocation = registeredPickups.find(p => p.pickup_location.toLowerCase() === configuredName.toLowerCase());
+      const matchedLocation = registeredPickups.find(p => 
+        (configuredName && p.pickup_location.toLowerCase() === configuredName.toLowerCase()) ||
+        (pickupSettings?.pickup_location_name && p.pickup_location.toLowerCase() === pickupSettings.pickup_location_name.toLowerCase()) ||
+        (pickupSettings?.pincode && String(p.pin_code || '').trim() === String(pickupSettings.pincode).trim()) ||
+        p.is_primary_location === 1 ||
+        p.pickup_location.toLowerCase() === 'primary'
+      );
       if (matchedLocation) {
         selectedPickupLocation = matchedLocation.pickup_location;
         selectedPickupLocationId = matchedLocation.id ? String(matchedLocation.id) : '';
@@ -510,6 +520,7 @@ export class ShiprocketProvider {
       if (!shipmentId) {
         throw new Error('Shiprocket response did not return a shipment_id.');
       }
+      console.log(`[Shipping] Shiprocket order created: shipmentId=${shipmentId}`);
 
       // Step 2: Query Courier Serviceability to fetch recommended courier
       let selectedCourierId = null;
@@ -548,6 +559,7 @@ export class ShiprocketProvider {
       }
 
       // Step 3: Assign AWB automatically using Recommended courier
+      console.log(`[Shipping] Shiprocket AWB allocation started for shipmentId: ${shipmentId}`);
       console.log(`🔄 [ShiprocketProvider]: Requesting courier/AWB for Shipment: ${shipmentId} (Courier ID: ${selectedCourierId || 'Auto'})...`);
       const awbBody = { shipment_id: shipmentId };
       if (selectedCourierId) {
@@ -566,27 +578,36 @@ export class ShiprocketProvider {
       let awbNumber = null;
       let courierName = selectedCourierName;
 
-      if (awbResponse.ok) {
-        const awbData = await awbResponse.json();
-        if (awbData.response && awbData.response.data) {
-          const awbDetails = awbData.response.data;
-          awbNumber = awbDetails.awb_code;
-          courierName = awbDetails.courier_name || selectedCourierName || 'Standard Courier';
-          console.log(`✅ [ShiprocketProvider]: AWB Assigned: ${awbNumber} via ${courierName}`);
-        }
-      } else {
+      if (!awbResponse.ok) {
         const awbErrBody = await awbResponse.json().catch(() => ({}));
-        console.warn('⚠️ [ShiprocketProvider]: AWB allocation failed:', JSON.stringify(awbErrBody));
+        const awbErrMsg = awbErrBody.message || `AWB allocation failed with HTTP status ${awbResponse.status}`;
+        console.warn(`[Shipping] Shiprocket AWB allocation failed: ${awbErrMsg}`);
+        console.warn(`[Shipping] Shiprocket shipment considered FAILED: ${awbErrMsg}`);
+        throw new Error(`Shiprocket AWB allocation failed: ${awbErrMsg}`);
       }
+
+      const awbData = await awbResponse.json();
+      const awbDetails = awbData.response?.data;
+      awbNumber = awbDetails?.awb_code;
+
+      if (!awbNumber || awbNumber.toString().trim() === '') {
+        const awbErrMsg = awbData.message || 'Shiprocket AWB code is missing or empty in API response.';
+        console.warn(`[Shipping] Shiprocket AWB allocation failed: ${awbErrMsg}`);
+        console.warn(`[Shipping] Shiprocket shipment considered FAILED: ${awbErrMsg}`);
+        throw new Error(`Shiprocket AWB allocation failed: ${awbErrMsg}`);
+      }
+
+      courierName = awbDetails.courier_name || selectedCourierName || 'Standard Courier';
+      console.log(`✅ [ShiprocketProvider]: AWB Assigned: ${awbNumber} via ${courierName}`);
 
       return {
         success: true,
         shipment_id: shipmentId.toString(),
-        awb_number: awbNumber || '',
+        awb_number: awbNumber,
         courier_name: courierName,
-        tracking_number: awbNumber || '',
-        tracking_url: awbNumber ? `https://track.shiprocket.in/tracking/${awbNumber}` : '',
-        status: awbNumber ? 'Shipment Created' : 'Pending',
+        tracking_number: awbNumber,
+        tracking_url: `https://track.shiprocket.in/tracking/${awbNumber}`,
+        status: 'Shipment Created',
         estimated_delivery: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB'),
         pickup_location_name: selectedPickupLocation,
         pickup_location_id: selectedPickupLocationId
@@ -746,6 +767,142 @@ export class ShiprocketProvider {
     } catch (error) {
       console.error('❌ [ShiprocketProvider]: Get tracking status failed:', error.message);
       throw error;
+    }
+  }
+
+  /**
+   * Calculate shipping cost and check serviceability using Shiprocket API
+   */
+  async calculateShippingCost(originPincode, destinationPincode, weightInGrams, paymentMode = 'Prepaid', dimensions = {}, declaredValue = 0) {
+    const cleanOrigin = (originPincode || '').toString().trim();
+    const cleanDest = (destinationPincode || '').toString().trim();
+    const weightGrams = Math.max(1, parseInt(weightInGrams) || 500);
+    const weightKg = parseFloat((weightGrams / 1000).toFixed(3)); // Shiprocket takes kg
+    const isCod = paymentMode.toUpperCase() === 'COD' ? 1 : 0;
+    const length = dimensions.length || 15;
+    const breadth = dimensions.breadth || 15;
+    const height = dimensions.height || 15;
+
+    if (!cleanOrigin || cleanOrigin.length !== 6) {
+      return { success: false, serviceable: false, provider: 'Shiprocket', reason: 'Invalid or missing origin pincode.' };
+    }
+    if (!cleanDest || cleanDest.length !== 6) {
+      return { success: false, serviceable: false, provider: 'Shiprocket', reason: 'Invalid or missing destination pincode.' };
+    }
+
+    if (this.isMock) {
+      console.log(`ℹ️ [ShiprocketProvider]: Mock Mode. Calculating shipping from ${cleanOrigin} to ${cleanDest} for weight ${weightGrams}g (${paymentMode})...`);
+      
+      // Simulate unserviceable route for testing
+      if (cleanDest === '999999' || cleanDest.startsWith('999')) {
+        return { success: false, serviceable: false, provider: 'Shiprocket', reason: 'Route not serviceable by Shiprocket couriers.' };
+      }
+
+      // Simulated calculation: base ₹70 + ₹20 per 500g + ₹30 COD surcharge if applicable
+      const baseFee = 70;
+      const weightSurcharge = Math.ceil(weightGrams / 500) * 20;
+      const codFee = isCod ? 30 : 0;
+      const mockTotal = baseFee + weightSurcharge + codFee;
+
+      return {
+        success: true,
+        serviceable: true,
+        provider: 'Shiprocket',
+        total_amount: mockTotal,
+        gross_amount: mockTotal - codFee,
+        courier_name: 'Shiprocket Express',
+        courier_company_id: 1,
+        estimated_delivery: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB')
+      };
+    }
+
+    try {
+      const token = await this._getToken();
+      const queryParams = new URLSearchParams({
+        pickup_postcode: cleanOrigin,
+        delivery_postcode: cleanDest,
+        weight: weightKg.toString(),
+        cod: isCod.toString(),
+        length: length.toString(),
+        breadth: breadth.toString(),
+        height: height.toString()
+      });
+      if (declaredValue > 0) {
+        queryParams.append('declared_value', declaredValue.toString());
+      }
+
+      const serviceabilityUrl = `${this.apiBase}/courier/serviceability?${queryParams.toString()}`;
+      console.log(`🔄 [ShiprocketProvider]: Querying serviceability from: ${this.apiBase}/courier/serviceability?pickup_postcode=${cleanOrigin}&delivery_postcode=${cleanDest}&weight=${weightKg}&cod=${isCod}`);
+
+      // Use AbortController for 8 second timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+      const response = await fetch(serviceabilityUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        signal: controller.signal
+      }).finally(() => clearTimeout(timeoutId));
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => '');
+        console.warn(`⚠️ [ShiprocketProvider.calculateShippingCost]: HTTP ${response.status} - ${errorText}`);
+        return {
+          success: false,
+          serviceable: false,
+          provider: 'Shiprocket',
+          reason: `Shiprocket API error: HTTP ${response.status}`
+        };
+      }
+
+      const data = await response.json();
+      const courierList = data.data?.available_courier_companies || [];
+      if (!courierList || courierList.length === 0) {
+        return {
+          success: false,
+          serviceable: false,
+          provider: 'Shiprocket',
+          reason: 'No serviceable courier available on this route.'
+        };
+      }
+
+      // Sort by rate to pick the most economical available courier
+      courierList.sort((a, b) => (parseFloat(a.rate) || 999999) - (parseFloat(b.rate) || 999999));
+      const selectedCourier = courierList[0];
+      const rate = parseFloat(selectedCourier.rate || selectedCourier.freight_charge);
+
+      if (isNaN(rate) || rate <= 0) {
+        return {
+          success: false,
+          serviceable: false,
+          provider: 'Shiprocket',
+          reason: 'Invalid rate returned by Shiprocket.'
+        };
+      }
+
+      return {
+        success: true,
+        serviceable: true,
+        provider: 'Shiprocket',
+        total_amount: rate,
+        gross_amount: rate,
+        courier_name: selectedCourier.courier_name || selectedCourier.courier_company_name || 'Standard Courier',
+        courier_company_id: selectedCourier.courier_company_id,
+        estimated_delivery: selectedCourier.etd || new Date(Date.now() + 4 * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB')
+      };
+    } catch (err) {
+      const isTimeout = err.name === 'AbortError' || err.message?.toLowerCase().includes('aborted') || err.message?.toLowerCase().includes('timeout');
+      const reason = isTimeout ? 'Shiprocket API request timed out.' : (err.message || 'Shiprocket serviceability query failed.');
+      console.warn(`⚠️ [ShiprocketProvider.calculateShippingCost]: ${reason}`);
+      return {
+        success: false,
+        serviceable: false,
+        provider: 'Shiprocket',
+        reason
+      };
     }
   }
 }
