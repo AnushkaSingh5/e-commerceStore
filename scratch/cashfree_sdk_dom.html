@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html style="overflow: hidden !important;"><head>
+  <meta charset="utf-8">
+  <title>Cashfree Checkout Real DOM Test</title>
+  <script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
+</head>
+<body style="margin: 0; background: #fff;">
+  <div id="status">Initializing Checkout...</div>
+  <script>
+    window.addEventListener('load', function() {
+      try {
+        const cashfree = window.Cashfree({ mode: 'production' });
+        document.getElementById('status').innerText = 'Initializing Checkout...';
+        cashfree.checkout({
+          paymentSessionId: 'session_bR9h82JXd5VEJY1Rc8ecrqrF2WH9Fzib3R5g0Po432ix81M8ZeIpFwldEyJ5DyWlrl71RwXPE8odv9auBeyMWatrP41tPUI2N6gLhNwo5Onm6H3a4l6mTVFY4Ub6',
+          redirectTarget: '_modal'
+        });
+      } catch (err) {
+        document.getElementById('status').innerText = 'Error: ' + err.message;
+      }
+    });
+  </script>
+
+<iframe src="https://sdk.cashfree.com/js/v3/c2a364e3f33100db115a849f3ac3f581/atoms/ping_atom.html?context=production" style="display: none;"></iframe><div id="cashfree-modal-container" style="position: fixed !important; box-sizing: border-box !important; width: 100vw !important; height: 100dvh !important; top: 0px !important; left: 0px !important; z-index: 2147483647 !important; backdrop-filter: blur(3px) !important;"><div style="width: 768px !important; height: 646px !important; overflow: hidden !important; position: relative !important; background-color: transparent !important; box-shadow: rgba(0, 0, 0, 0.5) 0px 0px 1000px 2000px !important; top: 50% !important; left: 50% !important; transform: translate(-50%, -50%) !important; border: 0px solid rgb(255, 255, 255) !important; margin: 0px !important; padding: 0px !important; border-radius: 12px !important; max-height: calc(-60px + 100vh) !important; max-width: 100vw !important;"><iframe name="eyJwYXJlbnROYW1lIjoiY2FzaGZyZWUtbW9kYWwtaWZyYW1lIiwiaXNXaW5kb3dPcGVuU3VwcG9ydGVkIjpmYWxzZSwicGFyZW50RG9tYWluIjoiZmlsZTovLyJ9" allow="payment *; otp-credentials *;" style="width: 100% !important; height: 100% !important; border-width: medium !important; border-style: none !important; border-color: currentcolor !important; border-image: none !important; overflow: hidden !important; border-radius: 12px !important;"></iframe></div></div></body></html>

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Cashfree Checkout Real DOM Test</title>
+  <script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
+</head>
+<body style="margin: 0; background: #fff;">
+  <div id="status">Loading Cashfree SDK...</div>
+  <script>
+    window.addEventListener('load', function() {
+      try {
+        const cashfree = window.Cashfree({ mode: 'production' });
+        document.getElementById('status').innerText = 'Initializing Checkout...';
+        cashfree.checkout({
+          paymentSessionId: 'session_bR9h82JXd5VEJY1Rc8ecrqrF2WH9Fzib3R5g0Po432ix81M8ZeIpFwldEyJ5DyWlrl71RwXPE8odv9auBeyMWatrP41tPUI2N6gLhNwo5Onm6H3a4l6mTVFY4Ub6',
+          redirectTarget: '_modal'
+        });
+      } catch (err) {
+        document.getElementById('status').innerText = 'Error: ' + err.message;
+      }
+    });
+  </script>
+</body>
+</html>

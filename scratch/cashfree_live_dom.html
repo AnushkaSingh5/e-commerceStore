@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html id="html-root" style="background:#fafafa"><head> <title> Cashfree Online Payments </title> <base href="/order/"> <meta charset="utf-8"> <meta content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" name="viewport"> <meta content="#333333" name="theme-color" id="merchantThemeMeta"> <meta content="Accept payments instantly using Cashfree's Payment Gateway. We support Netbanking, Credit / Debit Cards, UPI, Wallets, International Cards &amp; EMI" name="description"> <meta content="Cashfree Online Payments" itemprop="name"> <meta content="Accept payments instantly using Cashfree's Payment Gateway. We support Netbanking, Credit / Debit Cards, UPI, Wallets, International Cards &amp; EMI" itemprop="description"> <meta content="https://s3-ap-southeast-1.amazonaws.com/cfreeimages/cf-og.png" itemprop="image"> <meta content="Cashfree payments india pvt ltd " property="og:site_name"> <meta content="https://s3-ap-southeast-1.amazonaws.com/cfreeimages/cf-og.png" itemprop="image" property="og:image:secure_url"> <meta content="website" property="og:type"> <meta content="Cashfree Online Payments" itemprop="name" property="og:title"> <meta content="Accept payments instantly using Cashfree's Payment Gateway. We support Netbanking, Credit / Debit Cards, UPI, Wallets, International Cards &amp; EMI" itemprop="description" property="og:description"> <meta content="https://www.cashfree.com" property="og:url"> <link href="https://use.typekit.net/jpk7bsf.css" rel="stylesheet" as="style" onload="this.rel='stylesheet'"> <link href="favicon.ico" rel="icon" type="image/png"> <link href="manifest.json" rel="manifest"> <link href="css/global.css" rel="stylesheet"> <link href="css/custom.css?v=1cd2b1d6d2e15ef937fa12e6e3a924e3" rel="stylesheet"> <link href="https://s3-eu-west-1.amazonaws.com" rel="preconnect"> <link href="https://cashfreelogo.cashfree.com" rel="preconnect"> <link href="client/main.1818790307.css" rel="stylesheet"> <style media="screen">#iesplash,#splash{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);transition-timing-function:ease-in;text-align:center}.redirectLegacy{box-shadow:inset 0 -3px 7px 0 #29bbff;background:linear-gradient(to bottom,#2dabf9 5%,#0688fa 100%);background-color:#2dabf9;border-radius:3px;display:inline-block;cursor:pointer;color:#fff;font-family:Arial;font-size:15px;padding:9px 23px;text-decoration:none;word-wrap:break-word}.redirectLegacy:hover{background:linear-gradient(to bottom,#0688fa 5%,#2dabf9 100%);background-color:#0688fa}.redirectLegacy:active{position:relative;top:1px}@media all and (max-width:30em){.redirectLegacy{display:block;margin:.4em auto}}#legacyRedirectDiv{display:none}</style> <script> window.setAPPVersion = function setAPPVersion(version) {
+            window.APP_VERSION = version;
+        } </script> <script src="/order/client/cflFxgS.client.6ea304ff.js" type="module" crossorigin="use-credentials"></script><style data-emotion="css">.css-6hwi34{color:#8F2D56 !important;}</style><style data-emotion="css">.css-93cgcl{background-color:#8F2D56 !important;}</style><style data-emotion="css">.css-111g6lz{border-color:#8F2D56 !important;}</style><style data-emotion="css">.css-1evwbf1{color:#434343 !important;}</style><link rel="stylesheet" href="client/cflFxgS.cflFxgS.index.c3aec36a.css"><link rel="stylesheet" href="client/cflFxgS.cflFxgS.constants.96a0a5b9.css"><link rel="preconnect" href="https://payments.cashfree.com/pgbillpayuiapi"></head> <body view="desktop" os="na" browser="GoogleChrome" initialts="1788196848127">  <div id="sapperpc" style="visibility: visible;">
+	<main><div id="main1"><div class="row"><div class="col-xs-12 center-xs" style="padding-top: 5rem;"><img src="500.svg" alt="500"></div></div> <div class="row"><div class="col-xs-12 center-xs" style="padding-top: 0rem;"><p class="h1" style="color: rgb(125, 68, 240);">Oops!</p></div></div> <div class="row"><div class="col-xs-12 center-xs" style="padding-top: 0rem;"><p class="h2" style="color: rgb(67, 67, 67);">client session is invalid</p></div></div> <div class="row center-xs"><div class="col-xs-6" style="padding-top: 1rem;"><button type="submit" class="outline svelte-18gbmjx">Retry</button></div></div></div> <div class="footer svelte-1ra92n5"><div class="row around-xs vpdlr mt-1"><div class="col-xs-12 text-center"><div class="xs mb-8 bold-headline">Payments Secured by</div> <img src="https://cashfreelogo.cashfree.com/cashfreepayments/logopng1x/Cashfree_Payments_Logo.png" alt="splash icon" style="height: 25px;"></div> <div class="col-xs-12 text-center mt-40 svelte-1ra92n5"><img src="rectangle.png" alt="" style="width: 100%;"></div></div></div></main>
+	
+	
+	</div> <div id="splash" style="visibility: hidden;"> <img alt="splash icon" src="https://cashfreelogo.cashfree.com/cashfreepayments/logopng1x/Cashfree_Payments_Logo.png"> <div id="legacyRedirectDiv" style="display: block;"> <p style="font-size:12px"> If you are not redirected to the payment page please click the link below </p> <a class="redirectLegacy" href="javascript:void(0);" id="redirectLegacyBtn" onclick="goToLegacyPage()">Go to Payment page</a> </div> </div> <div id="iesplash" style="visibility:hidden"> <img alt="splash icon" src="https://cashfreelogo.cashfree.com/cashfreepayments/logopng1x/Cashfree_Payments_Logo.png"> <p style="font-size:14px"> IE browser is not supported.Please try any other browser. </p> </div> <script> window.onload = function() {
+            let navigator = window.navigator.userAgent;
+            let isIEBrowser = /Trident/i.test(navigator);
+            if(isIEBrowser) {
+                document.querySelector('#splash').style.visibility = 'hidden';
+                document.querySelector('#iesplash').style.visibility = 'visible';
+            }
+        }
+        var redirectLegacyBtn = document.querySelector("#redirectLegacyBtn");
+        var redirectLegacyDiv = document.querySelector("#legacyRedirectDiv");
+        var baseEl = document.querySelector("base");
+
+        var currentUrl = window.location.href;
+        var fullQuery = window.location.hash.slice(1);
+        var rtParams = fullQuery.split("/");
+        var orderHash = rtParams[0];
+        var url = "";
+
+        window.hideWarning = false;
+        window.CFENV = "development";
+
+       if (currentUrl.indexOf("payments-test.cashfree.com") !== -1) {
+            url = "https://payments-test.cashfree.com/order#";
+            window.CFENV = "test";
+        } else if (currentUrl.indexOf("payments.cashfree.com") !== -1) {
+            url = "https://payments.cashfree.com/order#";
+            window.CFENV = "production";
+        }
+
+        window.legacyURL = url + orderHash;
+
+         
+
+        if (baseEl.getAttribute("href").indexOf("pgbillpaywebapp") === -1) {
+            const warningTitleCSS =
+                "color:#ef080d; font-size:60px; font-weight: bold;";
+            const warningDescCSS = "font-size: 18px;color:#efae08";
+            const hireDescCSS = "font-size: 14px;color:#34abeb";
+            console.log("%cWait!", warningTitleCSS);
+            console.log(
+                "%cThis is a browser feature intended for developers. If someone told you to copy and paste something here, it is a scam or is trying to steal money from you.",
+                warningDescCSS
+            );
+			console.log(
+                "%cIf you like what you see then we would love to chat more. Please write to us at careers@cashfree.com",
+                hireDescCSS
+            );
+        }
+
+        function goToLegacyPage() {
+            console.log("Go to legacy payment page");
+            window.location.reload(true);
+        }
+
+        setTimeout(function () {
+            redirectLegacyDiv.style.display = "block";
+        }, 5000); </script> <script>__SAPPER__={error:null,status:500,baseUrl:"/order",preloaded:[void 0,{}]};if('serviceWorker' in navigator)navigator.serviceWorker.register('/order/service-worker.js');var s=document.createElement("script");try{new Function("if(0)import('')")();s.src="/order/client/cflFxgS.client.6ea304ff.js";s.type="module";s.crossOrigin="use-credentials";}catch(e){s.src="/order/client/shimport@1.0.1.js";s.setAttribute("data-main","/order/client/cflFxgS.client.6ea304ff.js")}document.head.appendChild(s)</script> <script> // if(typeof Sentry !== "undefined"){
+        //     Sentry.init({
+        //         dsn: "https://0e4013464c0bb0710e8fa474aa72432a@o330525.ingest.sentry.io/4506416706682880"
+        //     })
+        // } </script> <div id="invisible-cf-div"><form target="invisible-cf-iframe" id="invisible-cf-form" method="post" action="https://api.cashfree.com/pg/view/sessions/check" style="width: 0px; height: 0px; display: none;"><input type="text" name="payment_session_id" value="session_G2zkMolnS5Pizm6HRRJwJOBnxzDzmYpMQWEudZQUf3eAReGpesLhw5Jd3lq66jYuCKavVNqiV-A1GUO7JAYYnJ-4l5z-9jso02wZNdGgV7WSGAeWA8CFpltLyNdR"><input type="text" name="form_id" value="checkout_form_id"><input type="text" name="x_request_id" value="checkout_request_id"><input type="text" name="browser_meta" value="eyJ1c2VyQWdlbnQiOiJNb3ppbGxhLzUuMCAoV2luZG93cyBOVCAxMC4wOyBXaW42NDsgeDY0KSBBcHBsZVdlYktpdC81MzcuMzYgKEtIVE1MLCBsaWtlIEdlY2tvKSBIZWFkbGVzc0Nocm9tZS8xNTEuMC4wLjAgU2FmYXJpLzUzNy4zNiJ9"></form></div><iframe src="about:blank" id="invisible-cf-iframe" name="invisible-cf-iframe" style="width: 0px; height: 0px; display: none;"></iframe></body></html>
