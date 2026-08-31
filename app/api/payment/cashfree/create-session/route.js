@@ -88,9 +88,17 @@ export async function POST(request) {
     const response = await cashfree.PGCreateOrder(requestPayload);
     const responseData = response.data;
 
+    console.log(`[Cashfree Debug]`);
+    console.log(`  environment = ${isProduction ? 'PRODUCTION' : 'SANDBOX'}`);
+    console.log(`  API endpoint = ${isProduction ? 'https://api.cashfree.com/pg/orders' : 'https://sandbox.cashfree.com/pg/orders'}`);
+    console.log(`  payment_session_id present = ${Boolean(responseData.payment_session_id)}`);
+    console.log(`  payment_session_id length = ${responseData.payment_session_id?.length || 0}`);
+    console.log(`  order ID = ${responseData.order_id}`);
+
     return NextResponse.json({
       id: responseData.order_id,
       payment_session_id: responseData.payment_session_id,
+      environment: isProduction ? 'production' : 'sandbox',
       mock: false
     });
 

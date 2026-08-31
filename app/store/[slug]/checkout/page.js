@@ -574,8 +574,10 @@ export default function StoreCheckoutPage({ params }) {
 
         if (activeProviderName === 'Cashfree') {
           // Trigger Cashfree SDK Web Checkout redirect
+          const checkoutMode = paymentOrder.environment || (process.env.NEXT_PUBLIC_CASHFREE_ENV === 'PRODUCTION' ? 'production' : 'sandbox');
+          console.log(`🔄 [Checkout]: Initializing Cashfree SDK in mode: "${checkoutMode}"...`);
           const cashfree = window.Cashfree({
-            mode: process.env.NEXT_PUBLIC_CASHFREE_ENV === 'PRODUCTION' ? 'production' : 'sandbox'
+            mode: checkoutMode
           });
           console.log('🔄 [Checkout]: Redirecting to Cashfree checkout...');
           cashfree.checkout({

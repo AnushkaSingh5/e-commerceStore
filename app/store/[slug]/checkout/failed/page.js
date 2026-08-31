@@ -85,8 +85,10 @@ export default function CheckoutFailedPage({ params }) {
 
       if (activeProviderName === 'Cashfree') {
         // Trigger Cashfree SDK Web Checkout retry redirect
+        const checkoutMode = paymentOrder.environment || (process.env.NEXT_PUBLIC_CASHFREE_ENV === 'PRODUCTION' ? 'production' : 'sandbox');
+        console.log(`🔄 [Retry]: Initializing Cashfree SDK in mode: "${checkoutMode}" for retry...`);
         const cashfree = window.Cashfree({
-          mode: process.env.NEXT_PUBLIC_CASHFREE_ENV === 'PRODUCTION' ? 'production' : 'sandbox'
+          mode: checkoutMode
         });
         console.log('🔄 [Retry]: Redirecting to Cashfree checkout retry...');
         cashfree.checkout({

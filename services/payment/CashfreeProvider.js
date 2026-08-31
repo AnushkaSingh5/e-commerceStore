@@ -31,50 +31,45 @@ export class CashfreeProvider extends PaymentProvider {
    * Create a Cashfree payment session by calling our backend API
    */
   async createPaymentOrder(orderId, amount, customerInfo) {
-    try {
-      // Find the slug from path if available to pass to redirect url builder
-      let slug = '';
-      if (typeof window !== 'undefined') {
-        const parts = window.location.pathname.split('/');
-        const idx = parts.indexOf('store');
-        if (idx !== -1 && parts[idx + 1]) {
-          slug = parts[idx + 1];
-        } else {
-          const demoIdx = parts.indexOf('demo-store');
-          if (demoIdx !== -1 && parts[demoIdx + 1]) {
-            slug = parts[demoIdx + 1];
-          }
+    // Find the slug from path if available to pass to redirect url builder
+    let slug = '';
+    if (typeof window !== 'undefined') {
+      const parts = window.location.pathname.split('/');
+      const idx = parts.indexOf('store');
+      if (idx !== -1 && parts[idx + 1]) {
+        slug = parts[idx + 1];
+      } else {
+        const demoIdx = parts.indexOf('demo-store');
+        if (demoIdx !== -1 && parts[demoIdx + 1]) {
+          slug = parts[demoIdx + 1];
         }
       }
-
-      const response = await fetch('/api/payment/cashfree/create-session', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          orderId,
-          amount,
-          customerInfo,
-          slug
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to create payment session on server.');
-      }
-
-      const data = await response.json();
-      return data; // Expected keys: { id (gateway order id), payment_session_id, mock }
-    } catch (err) {
-      console.warn('⚠️ [CashfreeProvider] Backend session creation failed, falling back to local mock:', err.message);
-      // Fallback local mock order/session
-      return {
-        id: `cf_mock_order_${Date.now()}`,
-        payment_session_id: `cf_mock_session_${Date.now()}`,
-        mock: true
-      };
     }
+
+    const response = await fetch('/api/payment/cashfree/create-session', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        orderId,
+        amount,
+        customerInfo,
+        slug
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      const errMsg = errorData.error || errorData.message || `Failed to create payment session on server (HTTP ${response.status}).`;
+      throw new Error(errMsg);
+    }
+
+    const data = await response.json();
+    if (!data.payment_session_id && !data.mock) {
+      throw new Error(data.error || 'No payment_session_id returned by payment server.');
+    }
+    return data; // Expected keys: { id, payment_session_id, environment, mock }
   }
 
   /**
