@@ -7,7 +7,7 @@ import { useStore } from '@/context/StoreContext';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { demoStores } from '@/lib/demoData';
 
-export default function Navbar({ storeName, logoUrl }) {
+export default function Navbar({ storeName, logoUrl, storeSlug: propStoreSlug }) {
   const [isScrolled, setIsScrolled] = useState(false);
   const { cart, wishlist, searchQuery, setSearchQuery } = useStore();
   const { customer, customerProfile, logout, loginWithProvider } = useCustomerAuth();
@@ -19,11 +19,30 @@ export default function Navbar({ storeName, logoUrl }) {
   const router = useRouter();
   const pathname = usePathname();
 
+  const [clientStoreSlug, setClientStoreSlug] = useState(null);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const qStore = params.get('store');
+      const stored = localStorage.getItem('last_visited_store');
+      if (qStore) {
+        setClientStoreSlug(qStore);
+      } else if (stored) {
+        setClientStoreSlug(stored);
+      }
+    }
+  }, [pathname]);
+
   const pathParts = pathname ? pathname.split('/') : [];
   const isDemo = pathParts[1] === 'demo-store';
   const isStorePage = (pathParts[1] === 'store' || isDemo) && pathParts[2];
-  const storeSlug = isStorePage ? pathParts[2] : null;
-  const storeLogo = logoUrl || (isDemo && storeSlug ? demoStores[storeSlug]?.logo : null);
+
+  const storeSlug = propStoreSlug || (isStorePage ? pathParts[2] : (clientStoreSlug || null));
+  const isDemoStore = isDemo || (storeSlug && !!demoStores[storeSlug]);
+  const storePrefix = isDemoStore ? 'demo-store' : 'store';
+  const storeLogo = logoUrl || (isDemoStore && storeSlug ? demoStores[storeSlug]?.logo : null);
+  const storeHomeUrl = storeSlug ? `/${storePrefix}/${storeSlug}` : "/";
 
   const currentStoreCart = storeSlug 
     ? (cart || []).filter(item => item.store_slug === storeSlug)
@@ -117,7 +136,7 @@ export default function Navbar({ storeName, logoUrl }) {
           ) : (
             <>
               {/* Logo / Brand Name */}
-              <Link href={storeSlug ? `/${pathParts[1]}/${storeSlug}` : "/"} className="logo">
+              <Link href={storeHomeUrl} className="logo">
                 {storeLogo ? (
                   <img 
                     src={storeLogo} 
@@ -130,17 +149,6 @@ export default function Navbar({ storeName, logoUrl }) {
                 )}
                 <span>{storeName || 'AestheticStore'}</span>
               </Link>
-
-              {/* Middle Nav Links */}
-              {/*
-              <div className="nav-links">
-                <button onClick={() => handleMenuClick('shop')} className="nav-link-btn">Shop</button>
-                <button onClick={() => handleMenuClick('categories-section')} className="nav-link-btn">Categories</button>
-                <button onClick={() => handleMenuClick('new-arrivals-section')} className="nav-link-btn">New Arrivals</button>
-                <button onClick={() => handleMenuClick('trending-section')} className="nav-link-btn">Best Sellers</button>
-                <button onClick={() => handleMenuClick('footer-section')} className="nav-link-btn">About Us</button>
-              </div>
-              */}
 
               {/* Centered Desktop Search Bar */}
               <form className="search-container desktop-search" onSubmit={(e) => e.preventDefault()}>
@@ -168,7 +176,7 @@ export default function Navbar({ storeName, logoUrl }) {
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
                   </button>
 
-                  {isStorePage && (
+                  {(isStorePage || Boolean(storeSlug)) && (
                     <div className="user-dropdown-container">
                       <button 
                         className="action-btn user-btn"
@@ -260,11 +268,11 @@ export default function Navbar({ storeName, logoUrl }) {
                       )}
                     </div>
                   )}
-                  <Link href={storeSlug ? `/${pathParts[1]}/${storeSlug}/wishlist` : "/wishlist"} className="action-btn wishlist-btn" aria-label="My Wishlist">
+                  <Link href={storeSlug ? `/${storePrefix}/${storeSlug}/wishlist` : "/wishlist"} className="action-btn wishlist-btn" aria-label="My Wishlist">
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
                     {storeWishlistCount > 0 && <span className="badge">{storeWishlistCount}</span>}
                   </Link>
-                  <Link href={storeSlug ? `/${pathParts[1]}/${storeSlug}/cart` : "/cart"} className="action-btn cart-btn">
+                  <Link href={storeSlug ? `/${storePrefix}/${storeSlug}/cart` : "/cart"} className="action-btn cart-btn">
                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"></path><path d="M3 6h18"></path><path d="M16 10a4 4 0 0 1-8 0"></path></svg>
                     {storeCartCount > 0 && <span className="badge">{storeCartCount}</span>}
                   </Link>

@@ -98,7 +98,11 @@ export default function CustomerPortalLayout({ children }) {
 
   return (
     <div className="profile-dashboard">
-      <Navbar storeName={storeDetails?.name} logoUrl={storeDetails?.logo_url || storeDetails?.logo} />
+      <Navbar 
+        storeName={storeDetails?.name} 
+        logoUrl={storeDetails?.logo_url || storeDetails?.logo} 
+        storeSlug={backToStoreSlug || storeDetails?.slug}
+      />
 
       <div className="profile-container container">
         <aside className="profile-sidebar dashboard-card">
