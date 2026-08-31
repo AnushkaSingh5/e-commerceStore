@@ -4,46 +4,74 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { walletService } from '@/services/walletService';
 import { payoutService } from '@/services/payoutService';
+import { bankAccountService } from '@/services/bankAccountService';
 import Table from '@/components/UI/Table';
 import Modal from '@/components/UI/Modal';
 
 export default function CreatorWallet() {
-  const { store } = useAuth();
+  const { store, user } = useAuth();
+  const sellerId = store?.creator_id || user?.id;
+
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [requestModalOpen, setRequestModalOpen] = useState(false);
+  const [savingBank, setSavingBank] = useState(false);
+
+  // Modals state
+  const [withdrawModalOpen, setWithdrawModalOpen] = useState(false);
+  const [bankModalOpen, setBankModalOpen] = useState(false);
 
   // Overview stats state
   const [overview, setOverview] = useState({
     totalEarnings: 0,
     pendingEarnings: 0,
     availableBalance: 0,
+    reservedBalance: 0,
+    withdrawableBalance: 0,
     totalPayouts: 0
   });
 
   // Transactions state
   const [transactions, setTransactions] = useState([]);
 
-  // Payout request form state
-  const [payoutAmount, setPayoutAmount] = useState('');
-  const [payoutMethod, setPayoutMethod] = useState('UPI');
-  const [accountDetails, setAccountDetails] = useState('');
+  // Bank Accounts state
+  const [bankAccounts, setBankAccounts] = useState([]);
+  const [selectedBankId, setSelectedBankId] = useState('');
+
+  // Withdrawal form state
+  const [withdrawAmount, setWithdrawAmount] = useState('');
+
+  // Add Bank form state
+  const [bankForm, setBankForm] = useState({
+    accountHolderName: '',
+    bankName: '',
+    accountNumber: '',
+    confirmAccountNumber: '',
+    ifscCode: '',
+    accountType: 'SAVINGS'
+  });
 
   useEffect(() => {
-    if (store) {
+    if (sellerId) {
       loadWalletData();
     }
-  }, [store]);
+  }, [sellerId, store]);
 
   const loadWalletData = async () => {
+    if (!sellerId) return;
     setLoading(true);
     try {
-      const [stats, txs] = await Promise.all([
-        walletService.getWalletOverview(store.creator_id, store.id),
-        walletService.getWalletTransactions(store.creator_id)
+      const [stats, txs, banks] = await Promise.all([
+        walletService.getWalletOverview(sellerId, store?.id),
+        walletService.getWalletTransactions(sellerId),
+        bankAccountService.getBankAccounts(sellerId)
       ]);
       setOverview(stats);
       setTransactions(txs);
+      setBankAccounts(banks);
+      if (banks.length > 0) {
+        const defaultBank = banks.find(b => b.is_default) || banks[0];
+        setSelectedBankId(defaultBank.id);
+      }
     } catch (e) {
       console.error('Error loading wallet data:', e);
     } finally {
@@ -51,48 +79,48 @@ export default function CreatorWallet() {
     }
   };
 
-  const handlePayoutSubmit = async (e) => {
+  const handleWithdrawSubmit = async (e) => {
     e.preventDefault();
-    if (!store) return;
+    if (!sellerId) return;
 
-    const amt = parseFloat(payoutAmount);
+    const amt = parseFloat(withdrawAmount);
     if (isNaN(amt) || amt <= 0) {
-      alert('Please enter a valid payout amount.');
+      alert('Please enter a valid withdrawal amount.');
       return;
     }
 
     if (amt < 500) {
-      alert('Minimum payout amount is ₹500.');
+      alert('Minimum withdrawal amount is ₹500.');
       return;
     }
 
     if (amt > overview.availableBalance) {
-      alert('Payout amount cannot exceed available balance.');
+      alert(`Withdrawal amount cannot exceed your available balance of ₹${overview.availableBalance.toLocaleString()}.`);
       return;
     }
 
-    if (!accountDetails.trim()) {
-      alert('Please enter your account details.');
+    if (!selectedBankId) {
+      alert('Please select or add a bank account first.');
       return;
     }
 
     setSubmitting(true);
     try {
       const res = await payoutService.createPayoutRequest(
-        store.creator_id,
+        sellerId,
+        store?.id,
+        selectedBankId,
         amt,
-        payoutMethod,
-        accountDetails.trim()
+        0 // Fee
       );
 
       if (res.success) {
-        alert('Payout request submitted successfully!');
-        setRequestModalOpen(false);
-        setPayoutAmount('');
-        setAccountDetails('');
+        alert('Withdrawal request submitted successfully! Funds have been reserved.');
+        setWithdrawModalOpen(false);
+        setWithdrawAmount('');
         await loadWalletData();
       } else {
-        alert('Failed to submit payout request: ' + res.error);
+        alert('Failed to submit withdrawal: ' + res.error);
       }
     } catch (err) {
       console.error(err);
@@ -102,15 +130,49 @@ export default function CreatorWallet() {
     }
   };
 
+  const handleBankSubmit = async (e) => {
+    e.preventDefault();
+    if (!sellerId) return;
+
+    setSavingBank(true);
+    try {
+      const res = await bankAccountService.addBankAccount(sellerId, bankForm);
+      if (res.success) {
+        alert('Bank account added successfully!');
+        setBankModalOpen(false);
+        setBankForm({
+          accountHolderName: '',
+          bankName: '',
+          accountNumber: '',
+          confirmAccountNumber: '',
+          ifscCode: '',
+          accountType: 'SAVINGS'
+        });
+        await loadWalletData();
+      } else {
+        alert('Failed to save bank account: ' + res.error);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error saving bank account: ' + err.message);
+    } finally {
+      setSavingBank(false);
+    }
+  };
+
   const getTransactionTypeColor = (type) => {
     switch (type) {
       case 'Sale Credit': return '#10b981';
       case 'Refund Adjustment': return '#ef4444';
-      case 'Payout Request': return '#3b82f6';
-      case 'Payout Completed': return '#8b5cf6';
+      case 'Payout Request':
+      case 'Withdrawal Reserve': return '#f59e0b';
+      case 'Payout Completed':
+      case 'Withdrawal Settled': return '#8b5cf6';
       default: return '#64748b';
     }
   };
+
+  const selectedBank = bankAccounts.find(b => b.id === selectedBankId) || bankAccounts[0];
 
   const columns = [
     { 
@@ -122,7 +184,7 @@ export default function CreatorWallet() {
       field: 'type', 
       label: 'TRANSACTION TYPE', 
       render: (row) => (
-        <span className="tx-type-pill" style={{ background: `${getTransactionTypeColor(row.type)}12`, color: getTransactionTypeColor(row.type) }}>
+        <span className="tx-type-pill" style={{ background: `${getTransactionTypeColor(row.type)}15`, color: getTransactionTypeColor(row.type) }}>
           {row.type}
         </span>
       )
@@ -134,7 +196,7 @@ export default function CreatorWallet() {
         const isNegative = row.amount < 0;
         return (
           <span className={`font-bold ${isNegative ? 'text-red' : 'text-green'}`}>
-            {isNegative ? '-' : '+'}₹{Math.abs(row.amount).toLocaleString()}
+            {isNegative ? '-' : '+'}₹{Math.abs(row.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </span>
         );
       }
@@ -143,7 +205,7 @@ export default function CreatorWallet() {
       field: 'status', 
       label: 'STATUS', 
       render: (row) => (
-        <span className={`status-badge status-${row.status.toLowerCase()}`}>
+        <span className={`status-badge status-${(row.status || 'pending').toLowerCase()}`}>
           {row.status}
         </span>
       ) 
@@ -156,8 +218,11 @@ export default function CreatorWallet() {
   ];
 
   if (loading && transactions.length === 0) {
-    return <div className="loading-state">Loading wallet ledger...</div>;
+    return <div className="loading-state">Loading authoritative wallet ledger...</div>;
   }
+
+  const numericWithdrawAmount = parseFloat(withdrawAmount) || 0;
+  const remainingAvailable = Math.max(0, overview.availableBalance - numericWithdrawAmount);
 
   return (
     <div className="wallet-page">
@@ -168,14 +233,14 @@ export default function CreatorWallet() {
         </div>
         <button 
           className="btn-payout-trigger" 
-          onClick={() => setRequestModalOpen(true)}
-          disabled={overview.availableBalance < 500}
+          onClick={() => setWithdrawModalOpen(true)}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>
-          Request Withdrawal
+          Withdraw Money
         </button>
       </div>
 
+      {/* Summary Cards */}
       <div className="summary-cards">
         <div className="summary-card">
           <div className="icon-wrapper total">
@@ -183,8 +248,8 @@ export default function CreatorWallet() {
           </div>
           <div className="card-data">
             <span className="card-label">Total Earnings</span>
-            <h3 className="card-value">₹{overview.totalEarnings.toLocaleString()}</h3>
-            <span className="card-hint">All sales revenue credit</span>
+            <h3 className="card-value">₹{overview.totalEarnings.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h3>
+            <span className="card-hint">All historical sales credit</span>
           </div>
         </div>
 
@@ -194,37 +259,92 @@ export default function CreatorWallet() {
           </div>
           <div className="card-data">
             <span className="card-label">Pending Earnings</span>
-            <h3 className="card-value">₹{overview.pendingEarnings.toLocaleString()}</h3>
+            <h3 className="card-value">₹{overview.pendingEarnings.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h3>
             <span className="card-hint">Locked under holding period</span>
           </div>
         </div>
 
-        <div className="summary-card">
+        <div className="summary-card highlight-available">
           <div className="icon-wrapper available">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" strokeWidth="2.5"><rect x="2" y="5" width="20" height="14" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line></svg>
           </div>
           <div className="card-data">
             <span className="card-label">Available Balance</span>
-            <h3 className="card-value">₹{overview.availableBalance.toLocaleString()}</h3>
+            <h3 className="card-value available-text">₹{overview.availableBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h3>
             <span className="card-hint">Withdrawable funds</span>
           </div>
         </div>
 
         <div className="summary-card">
-          <div className="icon-wrapper payouts">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ec4899" strokeWidth="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+          <div className="icon-wrapper reserved">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
           </div>
           <div className="card-data">
-            <span className="card-label">Total Payouts</span>
-            <h3 className="card-value">₹{overview.totalPayouts.toLocaleString()}</h3>
-            <span className="card-hint">Settled cash withdrawals</span>
+            <span className="card-label">Reserved Withdrawals</span>
+            <h3 className="card-value">₹{(overview.reservedBalance || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h3>
+            <span className="card-hint">Pending / processing</span>
           </div>
         </div>
       </div>
 
+      {/* Bank Account Section */}
+      <div className="bank-section dashboard-card">
+        <div className="bank-header">
+          <div className="bank-title-box">
+            <div className="bank-icon-circle">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2.2"><path d="M3 21h18M3 10h18M5 6l7-3 7 3M4 10v11M20 10v11M8 14v4M12 14v4M16 14v4"></path></svg>
+            </div>
+            <div>
+              <h3>Payout Bank Account</h3>
+              <p>Your withdrawal disbursements will be directly transferred to this account</p>
+            </div>
+          </div>
+          <button 
+            className="btn-secondary-action" 
+            onClick={() => setBankModalOpen(true)}
+          >
+            {bankAccounts.length > 0 ? 'Change Bank Details' : '+ Add Bank Account'}
+          </button>
+        </div>
+
+        {selectedBank ? (
+          <div className="bank-card-display">
+            <div className="bank-chip">
+              <span className="chip-badge">Primary Payout Method</span>
+              <span className="bank-name">{selectedBank.bank_name}</span>
+            </div>
+            <div className="bank-details-grid">
+              <div className="detail-item">
+                <span className="lbl">Account Holder</span>
+                <span className="val">{selectedBank.account_holder_name}</span>
+              </div>
+              <div className="detail-item">
+                <span className="lbl">Account Number</span>
+                <span className="val mono">{selectedBank.account_number_masked}</span>
+              </div>
+              <div className="detail-item">
+                <span className="lbl">IFSC Code</span>
+                <span className="val mono">{selectedBank.ifsc_code}</span>
+              </div>
+              <div className="detail-item">
+                <span className="lbl">Account Type</span>
+                <span className="val">{selectedBank.account_type || 'Savings'}</span>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="no-bank-banner">
+            <p>No bank account linked yet. Please link your bank details to enable payouts.</p>
+            <button className="btn-add-bank" onClick={() => setBankModalOpen(true)}>Add Bank Account</button>
+          </div>
+        )}
+      </div>
+
+      {/* Wallet Transactions Table */}
       <div className="table-card">
         <div className="card-header">
-          <h3>Wallet Transactions History</h3>
+          <h3>Wallet Transactions Ledger</h3>
+          <span className="card-badge">{transactions.length} records</span>
         </div>
         <div className="desktop-columns">
           <Table columns={columns} data={transactions} loading={loading} />
@@ -236,10 +356,10 @@ export default function CreatorWallet() {
               return (
                 <div className="tx-card" key={tx.id}>
                   <div className="tx-card-top">
-                    <span className="tx-type-pill" style={{ background: `${getTransactionTypeColor(tx.type)}12`, color: getTransactionTypeColor(tx.type) }}>
+                    <span className="tx-type-pill" style={{ background: `${getTransactionTypeColor(tx.type)}15`, color: getTransactionTypeColor(tx.type) }}>
                       {tx.type}
                     </span>
-                    <span className={`status-badge status-${tx.status.toLowerCase()}`}>
+                    <span className={`status-badge status-${(tx.status || 'pending').toLowerCase()}`}>
                       {tx.status}
                     </span>
                   </div>
@@ -247,7 +367,7 @@ export default function CreatorWallet() {
                     <div className="tx-metric">
                       <span className="tx-lbl">Amount</span>
                       <strong className={isNegative ? 'text-red' : 'text-green'}>
-                        {isNegative ? '-' : '+'}₹{Math.abs(tx.amount).toLocaleString()}
+                        {isNegative ? '-' : '+'}₹{Math.abs(tx.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </strong>
                     </div>
                     <div className="tx-metric">
@@ -263,71 +383,102 @@ export default function CreatorWallet() {
               );
             })
           ) : (
-            <div className="empty-state-tx">No wallet transactions found.</div>
+            <div className="empty-state">No transaction records found.</div>
           )}
         </div>
       </div>
 
+      {/* Modal: Withdraw Money */}
       <Modal
-        isOpen={requestModalOpen}
-        onClose={() => setRequestModalOpen(false)}
-        title="Submit Wallet Payout Request"
+        isOpen={withdrawModalOpen}
+        onClose={() => setWithdrawModalOpen(false)}
+        title="Withdraw Money"
       >
-        <form onSubmit={handlePayoutSubmit} className="payout-request-form">
-          <div className="available-indicator">
-            <span>Withdrawable Balance:</span>
-            <strong>₹{overview.availableBalance.toLocaleString()}</strong>
+        <form onSubmit={handleWithdrawSubmit} className="withdrawal-modal-form">
+          <div className="modal-balance-banner">
+            <span className="banner-lbl">Available to Withdraw</span>
+            <h2 className="banner-val">₹{overview.availableBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h2>
+            {overview.reservedBalance > 0 && (
+              <span className="banner-subtext">₹{overview.reservedBalance.toLocaleString()} currently reserved in pending withdrawals</span>
+            )}
+          </div>
+
+          {/* Bank Destination Card */}
+          <div className="form-group">
+            <label>Payout Destination</label>
+            {selectedBank ? (
+              <div className="selected-bank-box">
+                <div className="sb-left">
+                  <strong>{selectedBank.bank_name}</strong>
+                  <span>{selectedBank.account_holder_name}</span>
+                  <span className="sb-acc">{selectedBank.account_number_masked}</span>
+                </div>
+                <button type="button" className="sb-change-btn" onClick={() => { setWithdrawModalOpen(false); setBankModalOpen(true); }}>
+                  Change
+                </button>
+              </div>
+            ) : (
+              <div className="no-bank-alert">
+                <span>No bank account found. Please add a bank account first.</span>
+                <button type="button" className="btn-add-bank-inline" onClick={() => { setWithdrawModalOpen(false); setBankModalOpen(true); }}>
+                  + Add Bank Details
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="form-group">
-            <label htmlFor="payout-amount">Withdrawal Amount (₹)</label>
-            <input
-              id="payout-amount"
-              type="number"
-              placeholder="e.g. 1000"
-              value={payoutAmount}
-              onChange={(e) => setPayoutAmount(e.target.value)}
-              min="500"
-              max={overview.availableBalance}
-              onKeyDown={(e) => {
-                if (['e', 'E', '+', '-'].includes(e.key)) e.preventDefault();
-              }}
-              required
-            />
-            <span className="field-hint">Minimum payout request ₹500. Maximum is your available balance.</span>
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="payout-method">Payout Method</label>
-            <div className="select-wrapper">
-              <select 
-                id="payout-method"
-                value={payoutMethod} 
-                onChange={(e) => setPayoutMethod(e.target.value)}
-              >
-                <option value="UPI">UPI Address</option>
-                <option value="Bank Transfer">Bank Account Transfer</option>
-              </select>
+            <label htmlFor="withdraw-amount">Withdrawal Amount (₹)</label>
+            <div className="input-currency-wrapper">
+              <span className="currency-symbol">₹</span>
+              <input
+                id="withdraw-amount"
+                type="number"
+                placeholder="e.g. 1000"
+                value={withdrawAmount}
+                onChange={(e) => setWithdrawAmount(e.target.value)}
+                min="500"
+                max={overview.availableBalance}
+                step="0.01"
+                required
+                disabled={overview.availableBalance < 500}
+              />
             </div>
+            <span className="field-hint">Minimum withdrawal is ₹500. Maximum is your available balance.</span>
           </div>
 
-          <div className="form-group">
-            <label htmlFor="account-details">Payment Destination Details</label>
-            <textarea
-              id="account-details"
-              rows={3}
-              placeholder={payoutMethod === 'UPI' ? 'Enter UPI ID (e.g. name@upi)' : 'Account Holder Name, Account Number, Bank Name, IFSC code'}
-              value={accountDetails}
-              onChange={(e) => setAccountDetails(e.target.value)}
-              required
-            />
-          </div>
+          {numericWithdrawAmount > 0 && (
+            <div className="calculation-breakdown">
+              <div className="calc-row">
+                <span>Withdrawal Amount:</span>
+                <span>₹{numericWithdrawAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+              <div className="calc-row">
+                <span>Processing Fee:</span>
+                <span className="text-green">FREE (₹0.00)</span>
+              </div>
+              <div className="calc-row total-row">
+                <span>You Receive:</span>
+                <strong>₹{numericWithdrawAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+              </div>
+              <div className="calc-row remaining-row">
+                <span>Remaining Available:</span>
+                <span>₹{remainingAvailable.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+            </div>
+          )}
+
+          {overview.availableBalance < 500 && (
+            <div className="info-notice">
+              💡 Your available balance (₹{overview.availableBalance.toLocaleString()}) is below the minimum threshold of ₹500. Pending earnings will unlock once the holding period clears.
+            </div>
+          )}
 
           <div className="form-actions">
             <button 
               type="button" 
               className="btn-cancel" 
-              onClick={() => setRequestModalOpen(false)}
+              onClick={() => setWithdrawModalOpen(false)}
               disabled={submitting}
             >
               Cancel
@@ -335,9 +486,111 @@ export default function CreatorWallet() {
             <button 
               type="submit" 
               className="btn-submit" 
-              disabled={submitting}
+              disabled={submitting || !selectedBank || overview.availableBalance < 500 || numericWithdrawAmount < 500 || numericWithdrawAmount > overview.availableBalance}
             >
-              {submitting ? 'Submitting...' : 'Submit Request'}
+              {submitting ? 'Reserving Funds...' : 'Confirm Withdrawal'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Modal: Add/Update Bank Account */}
+      <Modal
+        isOpen={bankModalOpen}
+        onClose={() => setBankModalOpen(false)}
+        title="Add Bank Account"
+      >
+        <form onSubmit={handleBankSubmit} className="bank-modal-form">
+          <div className="form-group">
+            <label htmlFor="account-holder">Account Holder Name (as in bank)</label>
+            <input
+              id="account-holder"
+              type="text"
+              placeholder="e.g. Anushka Singh"
+              value={bankForm.accountHolderName}
+              onChange={(e) => setBankForm({ ...bankForm, accountHolderName: e.target.value })}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="bank-name">Bank Name</label>
+            <input
+              id="bank-name"
+              type="text"
+              placeholder="e.g. HDFC Bank, SBI, ICICI Bank"
+              value={bankForm.bankName}
+              onChange={(e) => setBankForm({ ...bankForm, bankName: e.target.value })}
+              required
+            />
+          </div>
+
+          <div className="form-row-2">
+            <div className="form-group">
+              <label htmlFor="acc-num">Account Number</label>
+              <input
+                id="acc-num"
+                type="password"
+                placeholder="Enter bank account number"
+                value={bankForm.accountNumber}
+                onChange={(e) => setBankForm({ ...bankForm, accountNumber: e.target.value })}
+                required
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="acc-confirm">Confirm Account Number</label>
+              <input
+                id="acc-confirm"
+                type="text"
+                placeholder="Re-enter account number"
+                value={bankForm.confirmAccountNumber}
+                onChange={(e) => setBankForm({ ...bankForm, confirmAccountNumber: e.target.value })}
+                required
+              />
+            </div>
+          </div>
+
+          <div className="form-row-2">
+            <div className="form-group">
+              <label htmlFor="ifsc">IFSC Code</label>
+              <input
+                id="ifsc"
+                type="text"
+                placeholder="e.g. HDFC0000123"
+                value={bankForm.ifscCode}
+                onChange={(e) => setBankForm({ ...bankForm, ifscCode: e.target.value.toUpperCase() })}
+                maxLength={11}
+                required
+              />
+            </div>
+            <div className="form-group">
+              <label htmlFor="acc-type">Account Type</label>
+              <select
+                id="acc-type"
+                value={bankForm.accountType}
+                onChange={(e) => setBankForm({ ...bankForm, accountType: e.target.value })}
+              >
+                <option value="SAVINGS">Savings Account</option>
+                <option value="CURRENT">Current Account</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="form-actions">
+            <button 
+              type="button" 
+              className="btn-cancel" 
+              onClick={() => setBankModalOpen(false)}
+              disabled={savingBank}
+            >
+              Cancel
+            </button>
+            <button 
+              type="submit" 
+              className="btn-submit" 
+              disabled={savingBank}
+            >
+              {savingBank ? 'Verifying & Saving...' : 'Save Bank Account'}
             </button>
           </div>
         </form>
@@ -349,7 +602,7 @@ export default function CreatorWallet() {
           margin: 0 auto;
           display: flex;
           flex-direction: column;
-          gap: 32px;
+          gap: 28px;
         }
 
         .page-header {
@@ -387,16 +640,9 @@ export default function CreatorWallet() {
           box-shadow: 0 4px 12px rgba(245, 158, 11, 0.25);
         }
 
-        .btn-payout-trigger:hover:not(:disabled) {
+        .btn-payout-trigger:hover {
           transform: translateY(-1px);
           box-shadow: 0 6px 16px rgba(245, 158, 11, 0.35);
-        }
-
-        .btn-payout-trigger:disabled {
-          background: #e2e8f0;
-          color: #94a3b8;
-          cursor: not-allowed;
-          box-shadow: none;
         }
 
         /* Summary Cards */
@@ -414,7 +660,12 @@ export default function CreatorWallet() {
           align-items: flex-start;
           gap: 16px;
           box-shadow: 0 10px 25px -5px rgba(0,0,0,0.02), 0 8px 10px -6px rgba(0,0,0,0.02);
-          border: 1px solid #f8fafc;
+          border: 1px solid #f1f5f9;
+        }
+
+        .summary-card.highlight-available {
+          border: 1.5px solid #8b5cf630;
+          background: linear-gradient(to bottom right, #ffffff, #faf5ff);
         }
 
         .summary-card .icon-wrapper {
@@ -424,12 +675,13 @@ export default function CreatorWallet() {
           display: flex;
           align-items: center;
           justify-content: center;
+          flex-shrink: 0;
         }
 
         .summary-card .icon-wrapper.total { background: #ecfdf5; }
         .summary-card .icon-wrapper.pending { background: #fffbeb; }
         .summary-card .icon-wrapper.available { background: #f5f3ff; }
-        .summary-card .icon-wrapper.payouts { background: #fdf2f8; }
+        .summary-card .icon-wrapper.reserved { background: #eef2ff; }
 
         .card-data {
           display: flex;
@@ -448,344 +700,419 @@ export default function CreatorWallet() {
           font-weight: 800;
           color: #1e293b;
           margin: 0 0 4px 0;
-          line-height: 1.1;
+        }
+
+        .available-text {
+          color: #7c3aed;
         }
 
         .card-hint {
-          font-size: 11px;
+          font-size: 12px;
           color: #94a3b8;
-          font-weight: 500;
         }
 
-        /* Table container */
+        /* Bank Account Section */
+        .bank-section {
+          background: #fff;
+          border-radius: 20px;
+          padding: 24px;
+          border: 1px solid #f1f5f9;
+        }
+
+        .bank-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 20px;
+        }
+
+        .bank-title-box {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+        }
+
+        .bank-icon-circle {
+          width: 42px;
+          height: 42px;
+          border-radius: 12px;
+          background: #eff6ff;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .bank-title-box h3 {
+          margin: 0 0 2px 0;
+          font-size: 17px;
+          font-weight: 700;
+          color: #1e293b;
+        }
+
+        .bank-title-box p {
+          margin: 0;
+          font-size: 13px;
+          color: #64748b;
+        }
+
+        .btn-secondary-action {
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          padding: 8px 16px;
+          border-radius: 10px;
+          font-size: 13px;
+          font-weight: 600;
+          color: #475569;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+
+        .btn-secondary-action:hover {
+          background: #f1f5f9;
+          color: #1e293b;
+        }
+
+        .bank-card-display {
+          background: linear-gradient(135deg, #1e293b, #0f172a);
+          border-radius: 16px;
+          padding: 24px;
+          color: #fff;
+        }
+
+        .bank-chip {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 20px;
+        }
+
+        .chip-badge {
+          background: rgba(255, 255, 255, 0.15);
+          padding: 4px 10px;
+          border-radius: 20px;
+          font-size: 11px;
+          font-weight: 600;
+          letter-spacing: 0.5px;
+        }
+
+        .bank-name {
+          font-size: 16px;
+          font-weight: 700;
+          letter-spacing: 0.5px;
+        }
+
+        .bank-details-grid {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 16px;
+        }
+
+        .detail-item {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+
+        .detail-item .lbl {
+          font-size: 11px;
+          color: #94a3b8;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+
+        .detail-item .val {
+          font-size: 15px;
+          font-weight: 600;
+          color: #f8fafc;
+        }
+
+        .detail-item .mono {
+          font-family: monospace;
+          letter-spacing: 1px;
+        }
+
+        .no-bank-banner {
+          background: #f8fafc;
+          border: 1.5px dashed #cbd5e1;
+          border-radius: 14px;
+          padding: 24px;
+          text-align: center;
+        }
+
+        .btn-add-bank {
+          background: #3b82f6;
+          color: #fff;
+          border: none;
+          padding: 10px 20px;
+          border-radius: 10px;
+          font-weight: 600;
+          margin-top: 10px;
+          cursor: pointer;
+        }
+
+        /* Table Card */
         .table-card {
           background: #fff;
-          border-radius: 24px;
-          padding: 28px;
+          border-radius: 20px;
+          padding: 24px;
           border: 1px solid #f1f5f9;
-          box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+        }
+
+        .card-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 20px;
         }
 
         .card-header h3 {
+          margin: 0;
           font-size: 18px;
-          font-weight: 800;
+          font-weight: 700;
           color: #1e293b;
-          margin: 0 0 20px 0;
         }
 
-        /* Helper styles */
-        .text-secondary { color: #64748b; }
+        .card-badge {
+          background: #f1f5f9;
+          color: #64748b;
+          padding: 4px 10px;
+          border-radius: 20px;
+          font-size: 12px;
+          font-weight: 600;
+        }
+
+        .tx-type-pill {
+          padding: 4px 10px;
+          border-radius: 8px;
+          font-size: 12px;
+          font-weight: 600;
+        }
+
+        .status-badge {
+          padding: 4px 10px;
+          border-radius: 20px;
+          font-size: 12px;
+          font-weight: 600;
+          text-transform: capitalize;
+        }
+
+        .status-badge.status-completed { background: #dcfce7; color: #15803d; }
+        .status-badge.status-pending { background: #fef3c7; color: #b45309; }
+        .status-badge.status-processing { background: #ede9fe; color: #6d28d9; }
+        .status-badge.status-rejected, .status-badge.status-failed { background: #fee2e2; color: #b91c1c; }
+
         .text-green { color: #10b981; }
         .text-red { color: #ef4444; }
         .font-bold { font-weight: 700; }
 
-        .tx-type-pill {
-          display: inline-block;
-          padding: 4px 10px;
-          border-radius: 20px;
-          font-size: 11px;
-          font-weight: 700;
-        }
-
-        .status-badge {
-          display: inline-flex;
-          align-items: center;
-          padding: 4px 10px;
-          border-radius: 20px;
-          font-size: 11px;
-          font-weight: 700;
-          text-transform: capitalize;
-        }
-        .status-badge.status-pending { background: #fffbeb; color: #d97706; }
-        .status-badge.status-completed { background: #ecfdf5; color: #059669; }
-        .status-badge.status-rejected { background: #fef2f2; color: #dc2626; }
-        .status-badge.status-failed { background: #fef2f2; color: #dc2626; }
-
-        /* Modal Form */
-        .payout-request-form {
-          display: flex;
-          flex-direction: column;
-          gap: 20px;
-        }
-
-        .available-indicator {
-          background: #f5f3ff;
+        /* Modal Styles */
+        .modal-balance-banner {
+          background: linear-gradient(135deg, #f5f3ff, #ede9fe);
           border: 1px solid #ddd6fe;
-          border-radius: 12px;
-          padding: 16px;
+          border-radius: 14px;
+          padding: 18px;
+          text-align: center;
+          margin-bottom: 20px;
+        }
+
+        .banner-lbl {
+          font-size: 12px;
+          font-weight: 600;
+          color: #6d28d9;
+          text-transform: uppercase;
+        }
+
+        .banner-val {
+          font-size: 32px;
+          font-weight: 800;
+          color: #5b21b6;
+          margin: 4px 0 0 0;
+        }
+
+        .banner-subtext {
+          font-size: 12px;
+          color: #7c3aed;
+          display: block;
+          margin-top: 4px;
+        }
+
+        .selected-bank-box {
           display: flex;
           justify-content: space-between;
           align-items: center;
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          border-radius: 12px;
+          padding: 14px;
         }
 
-        .available-indicator span {
+        .sb-left {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+
+        .sb-left strong {
+          color: #1e293b;
           font-size: 14px;
-          color: #4c1d95;
+        }
+
+        .sb-left span {
+          font-size: 12px;
+          color: #64748b;
+        }
+
+        .sb-acc {
+          font-family: monospace;
+          color: #0f172a !important;
           font-weight: 600;
         }
 
-        .available-indicator strong {
-          font-size: 20px;
-          color: #7c3aed;
-          font-weight: 800;
-        }
-
-        .form-group {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .form-group label {
-          font-size: 13px;
-          font-weight: 700;
-          color: #334155;
-        }
-
-        .form-group input, .form-group textarea, .select-wrapper select {
+        .sb-change-btn {
+          background: none;
           border: 1px solid #cbd5e1;
-          border-radius: 12px;
-          padding: 12px;
-          font-size: 14px;
-          font-family: inherit;
-          outline: none;
-          transition: all 0.2s;
+          padding: 6px 12px;
+          border-radius: 8px;
+          font-size: 12px;
+          font-weight: 600;
+          color: #475569;
+          cursor: pointer;
         }
 
-        .form-group input:focus, .form-group textarea:focus, .select-wrapper select:focus {
-          border-color: #8b5cf6;
-          box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.1);
-        }
-
-        .select-wrapper {
+        .input-currency-wrapper {
           position: relative;
           display: flex;
           align-items: center;
         }
 
-        .select-wrapper select {
-          width: 100%;
-          appearance: none;
-          padding-right: 40px;
+        .currency-symbol {
+          position: absolute;
+          left: 14px;
+          font-size: 16px;
+          font-weight: 700;
+          color: #64748b;
         }
 
-        .select-wrapper::after {
-          content: '▼';
-          font-size: 10px;
-          color: #94a3b8;
-          position: absolute;
-          right: 16px;
-          pointer-events: none;
+        .input-currency-wrapper input {
+          width: 100%;
+          padding: 12px 14px 12px 32px;
+          border: 1px solid #cbd5e1;
+          border-radius: 10px;
+          font-size: 16px;
+          font-weight: 600;
+        }
+
+        .calculation-breakdown {
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          border-radius: 12px;
+          padding: 14px;
+          margin-top: 16px;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .calc-row {
+          display: flex;
+          justify-content: space-between;
+          font-size: 13px;
+          color: #64748b;
+        }
+
+        .calc-row.total-row {
+          border-top: 1px dashed #cbd5e1;
+          padding-top: 8px;
+          color: #0f172a;
+          font-size: 15px;
+        }
+
+        .calc-row.remaining-row {
+          font-size: 12px;
+          color: #7c3aed;
+        }
+
+        .info-notice {
+          background: #fffbeb;
+          border: 1px solid #fef3c7;
+          color: #92400e;
+          padding: 12px;
+          border-radius: 10px;
+          font-size: 13px;
+          margin-top: 14px;
+        }
+
+        .form-row-2 {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 14px;
+        }
+
+        .form-group {
+          margin-bottom: 16px;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        .form-group label {
+          font-size: 13px;
+          font-weight: 600;
+          color: #334155;
+        }
+
+        .form-group input, .form-group select {
+          padding: 10px 14px;
+          border: 1px solid #cbd5e1;
+          border-radius: 10px;
+          font-size: 14px;
         }
 
         .field-hint {
-          font-size: 11px;
+          font-size: 12px;
           color: #94a3b8;
-          font-weight: 500;
         }
 
         .form-actions {
           display: flex;
           justify-content: flex-end;
           gap: 12px;
-          margin-top: 12px;
-        }
-
-        .btn-cancel, .btn-submit {
-          padding: 12px 20px;
-          border-radius: 12px;
-          font-size: 14px;
-          font-weight: 700;
-          cursor: pointer;
-          transition: all 0.2s;
+          margin-top: 20px;
         }
 
         .btn-cancel {
-          background: #fff;
-          border: 1px solid #cbd5e1;
-          color: #475569;
-        }
-
-        .btn-cancel:hover:not(:disabled) {
-          background: #f8fafc;
+          background: #f1f5f9;
+          border: none;
+          padding: 10px 18px;
+          border-radius: 10px;
+          font-weight: 600;
+          color: #64748b;
+          cursor: pointer;
         }
 
         .btn-submit {
-          background: linear-gradient(135deg, #f59e0b, #d97706);
+          background: #7c3aed;
           color: #fff;
           border: none;
-          box-shadow: 0 4px 12px rgba(245, 158, 11, 0.25);
+          padding: 10px 20px;
+          border-radius: 10px;
+          font-weight: 600;
+          cursor: pointer;
         }
 
-        .btn-submit:hover:not(:disabled) {
-          transform: translateY(-1px);
-          box-shadow: 0 6px 16px rgba(245, 158, 11, 0.35);
-        }
-
-        .btn-cancel:disabled, .btn-submit:disabled {
-          opacity: 0.7;
+        .btn-submit:disabled {
+          background: #cbd5e1;
           cursor: not-allowed;
         }
 
-        .loading-state {
-          padding: 80px;
-          text-align: center;
-          color: #94a3b8;
-          font-size: 16px;
+        @media (max-width: 900px) {
+          .summary-cards { grid-template-columns: repeat(2, 1fr); }
+          .bank-details-grid { grid-template-columns: repeat(2, 1fr); }
         }
-
-        .mobile-card-wrapper {
-          display: none;
-        }
-        .desktop-columns {
-          display: contents;
-        }
-
-        @media (max-width: 768px) {
-          .wallet-page {
-            gap: 16px !important;
-          }
-          .page-header {
-            flex-direction: column !important;
-            align-items: stretch !important;
-            gap: 12px !important;
-          }
-          .btn-payout-trigger {
-            width: 100% !important;
-            justify-content: center !important;
-          }
-          
-          .summary-cards {
-            grid-template-columns: repeat(2, 1fr) !important;
-            gap: 12px !important;
-          }
-          .summary-card {
-            flex-direction: column !important;
-            align-items: flex-start !important;
-            padding: 14px !important;
-            gap: 10px !important;
-          }
-          .summary-card .icon-wrapper {
-            width: 36px !important;
-            height: 36px !important;
-            border-radius: 8px !important;
-          }
-          .summary-card .icon-wrapper svg {
-            width: 16px !important;
-            height: 16px !important;
-          }
-          .card-data {
-            width: 100% !important;
-          }
-          .card-label {
-            font-size: 11px !important;
-            white-space: normal !important;
-            word-break: break-word !important;
-          }
-          .card-value {
-            font-size: 18px !important;
-          }
-          .card-hint {
-            font-size: 10px !important;
-            white-space: normal !important;
-            word-break: break-word !important;
-          }
-
-          .table-card {
-            padding: 0 !important;
-            background: transparent !important;
-            border: none !important;
-            box-shadow: none !important;
-          }
-          .card-header h3 {
-            font-size: 16px !important;
-            margin-bottom: 12px !important;
-          }
-
-          .desktop-columns {
-            display: none !important;
-          }
-          .mobile-card-wrapper {
-            display: flex !important;
-            flex-direction: column !important;
-            gap: 12px !important;
-            width: 100% !important;
-          }
-
-          /* Transaction Card mobile styles */
-          .tx-card {
-            background: #ffffff !important;
-            border: 1px solid #e2e8f0 !important;
-            border-radius: 16px !important;
-            padding: 14px !important;
-            display: flex !important;
-            flex-direction: column !important;
-            gap: 10px !important;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.01) !important;
-            width: 100% !important;
-          }
-
-          .tx-card-top {
-            display: flex !important;
-            justify-content: space-between !important;
-            align-items: center !important;
-            width: 100% !important;
-          }
-          .tx-type-pill {
-            font-size: 11px !important;
-            padding: 4px 10px !important;
-            font-weight: 700 !important;
-          }
-
-          .tx-card-middle {
-            display: grid !important;
-            grid-template-columns: repeat(2, 1fr) !important;
-            gap: 8px !important;
-            background: #f8fafc !important;
-            padding: 10px !important;
-            border-radius: 10px !important;
-            border: 1px solid #f1f5f9 !important;
-            width: 100% !important;
-          }
-          .tx-metric {
-            display: flex !important;
-            flex-direction: column !important;
-            gap: 2px !important;
-            align-items: center !important;
-          }
-          .tx-lbl {
-            font-size: 9.5px !important;
-            font-weight: 700 !important;
-            color: #94a3b8 !important;
-            text-transform: uppercase !important;
-          }
-          .tx-metric strong, .tx-metric span {
-            font-size: 13px !important;
-          }
-          .tx-ref {
-            font-family: monospace !important;
-            color: #64748b !important;
-          }
-
-          .tx-card-footer {
-            display: flex !important;
-            align-items: center !important;
-            gap: 4px !important;
-            font-size: 11.5px !important;
-            color: #64748b !important;
-            border-top: 1px solid #f1f5f9 !important;
-            padding-top: 10px !important;
-          }
-          .tx-card-footer svg {
-            color: #94a3b8 !important;
-          }
-
-          .empty-state-tx {
-            padding: 24px !important;
-            text-align: center !important;
-            color: #94a3b8 !important;
-            font-size: 14px !important;
-          }
+        @media (max-width: 600px) {
+          .summary-cards { grid-template-columns: 1fr; }
+          .bank-details-grid { grid-template-columns: 1fr; }
+          .form-row-2 { grid-template-columns: 1fr; }
         }
       `}</style>
     </div>

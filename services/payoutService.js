@@ -1,514 +1,387 @@
 import { supabaseClient } from '@/lib/supabase';
-
-// In-memory arrays for offline/mock data fallback
-let mockCreatorEarnings = [];
-let mockPayoutRequests = [];
-let forceMockMode = false;
-
-// Helper to seed realistic data for offline testing
-const seedMockData = (creatorId, storeId) => {
-  if (mockCreatorEarnings.length > 0) return;
-  const now = new Date();
-  const cid = creatorId || 'mock-creator-uid';
-  const sid = storeId || 'mock-store-id';
-
-  // Available Earning 1 (10 days ago)
-  const d1 = new Date();
-  d1.setDate(now.getDate() - 10);
-  mockCreatorEarnings.push({
-    id: 'earn-mock-1',
-    creator_id: cid,
-    store_id: sid,
-    order_id: 'ORD-MOCK-9001',
-    order_amount: 1500.00,
-    platform_fee: 0.00,
-    creator_amount: 1500.00,
-    status: 'available',
-    created_at: d1.toISOString()
-  });
-
-  // Available Earning 2 (8 days ago)
-  const d2 = new Date();
-  d2.setDate(now.getDate() - 8);
-  mockCreatorEarnings.push({
-    id: 'earn-mock-2',
-    creator_id: cid,
-    store_id: sid,
-    order_id: 'ORD-MOCK-9002',
-    order_amount: 2500.00,
-    platform_fee: 0.00,
-    creator_amount: 2500.00,
-    status: 'available',
-    created_at: d2.toISOString()
-  });
-
-  // Pending Earning 3 (2 days ago)
-  const d3 = new Date();
-  d3.setDate(now.getDate() - 2);
-  mockCreatorEarnings.push({
-    id: 'earn-mock-3',
-    creator_id: cid,
-    store_id: sid,
-    order_id: 'ORD-MOCK-9003',
-    order_amount: 1200.00,
-    platform_fee: 0.00,
-    creator_amount: 1200.00,
-    status: 'pending',
-    created_at: d3.toISOString()
-  });
-
-  // Completed Request (5 days ago)
-  const r1 = new Date();
-  r1.setDate(now.getDate() - 5);
-  mockPayoutRequests.push({
-    id: 'req-mock-1',
-    creator_id: cid,
-    amount: 1000.00,
-    payout_method: 'UPI',
-    account_details: 'creator@upi',
-    status: 'completed',
-    admin_notes: 'Settled automatically',
-    requested_at: r1.toISOString(),
-    processed_at: new Date(r1.getTime() + 12 * 60 * 60 * 1000).toISOString()
-  });
-
-  // Pending Request (1 day ago)
-  const r2 = new Date();
-  r2.setDate(now.getDate() - 1);
-  mockPayoutRequests.push({
-    id: 'req-mock-2',
-    creator_id: cid,
-    amount: 500.00,
-    payout_method: 'Bank Transfer',
-    account_details: 'A/C: 9876543210, IFSC: HDFC0000123',
-    status: 'pending',
-    admin_notes: null,
-    requested_at: r2.toISOString(),
-    processed_at: null
-  });
-};
+import { walletService } from './walletService';
+import { PayoutFactory } from './payout/PayoutFactory';
 
 export const payoutService = {
-  // Offline-exposed mock array references for testing and order integrations
-  _getMockEarnings: () => {
-    return mockCreatorEarnings;
-  },
-  _getMockPayoutRequests: () => {
-    return mockPayoutRequests;
-  },
-
   /**
-   * Run self-healing updates to transition pending earnings older than 7 days to available.
-   */
-  selfHealEarningsAge: async (creatorId) => {
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const isoThreshold = sevenDaysAgo.toISOString();
-
-    if (!supabaseClient || forceMockMode) {
-      // Mock Age Transition
-      seedMockData(creatorId);
-      mockCreatorEarnings.forEach(e => {
-        if (e.status === 'pending' && new Date(e.created_at) <= sevenDaysAgo) {
-          e.status = 'available';
-        }
-      });
-      return;
-    }
-
-    try {
-      const { error } = await supabaseClient
-        .from('creator_earnings')
-        .update({ status: 'available' })
-        .eq('status', 'pending')
-        .lte('created_at', isoThreshold);
-      if (error) {
-        if (error.code === '42P01' || error.code === 'PGRST205') {
-          forceMockMode = true;
-          return payoutService.selfHealEarningsAge(creatorId);
-        }
-        throw error;
-      }
-    } catch (e) {
-      console.error('Error in selfHealEarningsAge:', e);
-      forceMockMode = true;
-      return payoutService.selfHealEarningsAge(creatorId);
-    }
-  },
-
-  /**
-   * Fetch earnings balances: Total, Pending, Available, and Lifetime Order counts.
+   * Fetch earnings overview directly from authoritative wallet ledger
    */
   getCreatorEarningsSummary: async (creatorId, storeId) => {
-    await payoutService.selfHealEarningsAge(creatorId);
-
-    if (!supabaseClient || forceMockMode) {
-      seedMockData(creatorId, storeId);
-      const creatorErns = mockCreatorEarnings.filter(e => e.creator_id === creatorId);
-      const total = creatorErns.reduce((sum, e) => sum + parseFloat(e.creator_amount || 0), 0);
-      const pending = creatorErns.filter(e => e.status === 'pending').reduce((sum, e) => sum + parseFloat(e.creator_amount || 0), 0);
-      const available = creatorErns.filter(e => e.status === 'available' || e.status === 'completed').reduce((sum, e) => sum + parseFloat(e.creator_amount || 0), 0);
-      return {
-        totalEarnings: total,
-        pendingEarnings: pending,
-        availableEarnings: available,
-        lifetimeOrders: creatorErns.length
-      };
-    }
-
-    try {
-      const { data, error } = await supabaseClient
+    const overview = await walletService.getWalletOverview(creatorId, storeId);
+    
+    // Count lifetime orders
+    let orderCount = 0;
+    if (supabaseClient && creatorId) {
+      const { count } = await supabaseClient
         .from('creator_earnings')
-        .select('creator_amount, status')
+        .select('*', { count: 'exact', head: true })
         .eq('creator_id', creatorId);
-
-      if (error) {
-        if (error.code === '42P01' || error.code === 'PGRST205') {
-          forceMockMode = true;
-          return payoutService.getCreatorEarningsSummary(creatorId, storeId);
-        }
-        throw error;
-      }
-
-      const list = data || [];
-      const total = list.reduce((sum, e) => sum + parseFloat(e.creator_amount || 0), 0);
-      const pending = list.filter(e => e.status === 'pending').reduce((sum, e) => sum + parseFloat(e.creator_amount || 0), 0);
-      const available = list.filter(e => e.status === 'available' || e.status === 'completed').reduce((sum, e) => sum + parseFloat(e.creator_amount || 0), 0);
-
-      return {
-        totalEarnings: total,
-        pendingEarnings: pending,
-        availableEarnings: available,
-        lifetimeOrders: list.length
-      };
-    } catch (e) {
-      console.error('Error fetching creator earnings summary:', e);
-      forceMockMode = true;
-      return payoutService.getCreatorEarningsSummary(creatorId, storeId);
+      orderCount = count || 0;
     }
+
+    return {
+      totalEarnings: overview.totalEarnings,
+      pendingEarnings: overview.pendingEarnings,
+      availableEarnings: overview.withdrawableBalance, // Strict withdrawable balance
+      rawAvailableEarnings: overview.rawAvailableEarnings,
+      reservedBalance: overview.reservedBalance,
+      totalPayouts: overview.totalPayouts,
+      lifetimeOrders: orderCount
+    };
   },
 
   /**
-   * Fetch detailed list of order earnings.
+   * Fetch detailed list of order earnings
    */
   getCreatorEarningsList: async (creatorId, storeId) => {
-    await payoutService.selfHealEarningsAge(creatorId);
-
-    if (!supabaseClient || forceMockMode) {
-      seedMockData(creatorId, storeId);
-      return mockCreatorEarnings
-        .filter(e => e.creator_id === creatorId)
-        .map(e => ({
-          id: e.id,
-          orderId: e.order_id,
-          date: e.created_at.split('T')[0],
-          orderAmount: e.order_amount,
-          creatorAmount: e.creator_amount,
-          status: e.status
-        }))
-        .sort((a, b) => new Date(b.date) - new Date(a.date));
-    }
+    if (!supabaseClient || !creatorId) return [];
 
     try {
       const { data, error } = await supabaseClient
         .from('creator_earnings')
-        .select('*')
+        .select('id, order_id, order_amount, creator_amount, status, created_at')
         .eq('creator_id', creatorId)
         .order('created_at', { ascending: false });
 
       if (error) {
-        if (error.code === '42P01' || error.code === 'PGRST205') {
-          forceMockMode = true;
-          return payoutService.getCreatorEarningsList(creatorId, storeId);
-        }
-        throw error;
+        console.warn('⚠️ [payoutService.getCreatorEarningsList] Notice:', error.message);
+        return [];
       }
       return (data || []).map(e => ({
         id: e.id,
         orderId: e.order_id,
         date: e.created_at ? e.created_at.split('T')[0] : 'N/A',
-        orderAmount: parseFloat(e.order_amount),
-        creatorAmount: parseFloat(e.creator_amount),
+        orderAmount: parseFloat(e.order_amount || 0),
+        creatorAmount: parseFloat(e.creator_amount || 0),
         status: e.status
       }));
-    } catch (e) {
-      console.error('Error fetching creator earnings list:', e);
-      forceMockMode = true;
-      return payoutService.getCreatorEarningsList(creatorId, storeId);
+    } catch (err) {
+      console.warn('⚠️ [payoutService.getCreatorEarningsList] Exception:', err.message);
+      return [];
     }
   },
 
   /**
-   * Fetch payout requests for a creator.
+   * Fetch withdrawal requests for a seller
    */
   getPayoutRequests: async (creatorId) => {
-    if (!supabaseClient || forceMockMode) {
-      seedMockData(creatorId);
-      return mockPayoutRequests
-        .filter(r => r.creator_id === creatorId)
-        .map(r => ({
-          id: r.id,
-          amount: r.amount,
-          method: r.payout_method,
-          accountDetails: r.account_details,
-          status: r.status,
-          adminNotes: r.admin_notes,
-          requestedAt: r.requested_at ? r.requested_at.split('T')[0] : 'N/A',
-          processedAt: r.processed_at ? r.processed_at.split('T')[0] : null
-        }))
-        .sort((a, b) => new Date(b.requestedAt) - new Date(a.requestedAt));
-    }
+    if (!supabaseClient || !creatorId) return [];
 
     try {
-      const { data, error } = await supabaseClient
+      // 1. Fetch from new withdrawals table
+      const { data: withdrawals, error } = await supabaseClient
+        .from('withdrawals')
+        .select('*, bank_account:bank_account_id(*)')
+        .eq('seller_id', creatorId)
+        .order('requested_at', { ascending: false });
+
+      if (!error && withdrawals && withdrawals.length > 0) {
+        return withdrawals.map(w => ({
+          id: w.id,
+          withdrawalNumber: w.withdrawal_number,
+          amount: parseFloat(w.amount),
+          fee: parseFloat(w.fee || 0),
+          netAmount: parseFloat(w.net_amount || w.amount),
+          method: 'Bank Transfer',
+          bankName: w.bank_account?.bank_name || 'Bank Account',
+          accountDetails: w.bank_account ? `${w.bank_account.bank_name} (${w.bank_account.account_number_masked})` : 'Bank Transfer',
+          status: w.status,
+          adminNotes: w.admin_notes || w.failure_reason || w.rejection_reason,
+          requestedAt: w.requested_at ? w.requested_at.split('T')[0] : 'N/A',
+          processedAt: w.processed_at ? w.processed_at.split('T')[0] : null
+        }));
+      }
+
+      // Fallback to legacy payout_requests
+      const { data: legacy } = await supabaseClient
         .from('payout_requests')
         .select('*')
         .eq('creator_id', creatorId)
         .order('requested_at', { ascending: false });
 
-      if (error) {
-        console.warn('[Kreatorstore - PayoutService] Fallback to mock mode due to DB error:', error);
-        forceMockMode = true;
-        return payoutService.getPayoutRequests(creatorId);
-      }
-      return (data || []).map(r => ({
+      return (legacy || []).map(r => ({
         id: r.id,
+        withdrawalNumber: r.id.substring(0, 8).toUpperCase(),
         amount: parseFloat(r.amount),
+        fee: 0,
+        netAmount: parseFloat(r.amount),
         method: r.payout_method,
+        bankName: r.payout_method,
         accountDetails: r.account_details,
         status: r.status,
         adminNotes: r.admin_notes,
         requestedAt: r.requested_at ? r.requested_at.split('T')[0] : 'N/A',
         processedAt: r.processed_at ? r.processed_at.split('T')[0] : null
       }));
-    } catch (e) {
-      console.error('Error fetching payout requests:', e);
-      forceMockMode = true;
-      return payoutService.getPayoutRequests(creatorId);
+    } catch (err) {
+      console.warn('⚠️ [payoutService.getPayoutRequests] Exception:', err.message);
+      return [];
     }
   },
 
   /**
-   * Create a new payout request for a creator, validating available balance.
+   * Submit a new withdrawal request with atomic balance reservation
    */
-  createPayoutRequest: async (creatorId, amount, method, accountDetails) => {
+  createPayoutRequest: async (creatorId, storeId, bankAccountId, amount, fee = 0) => {
     const reqAmount = parseFloat(amount);
     if (isNaN(reqAmount) || reqAmount <= 0) {
       return { success: false, error: 'Invalid payout amount.' };
     }
 
-    // Minimum payout validation
     const minPayout = 500.00;
     if (reqAmount < minPayout) {
-      return { success: false, error: `Minimum payout request is ₹${minPayout}.` };
+      return { success: false, error: `Minimum withdrawal amount is ₹${minPayout}.` };
     }
 
-    // Balance check
-    const summary = await payoutService.getCreatorEarningsSummary(creatorId);
-    if (reqAmount > summary.availableEarnings) {
-      return { success: false, error: `Insufficient available balance. You only have ₹${summary.availableEarnings.toLocaleString()} available.` };
+    if (!bankAccountId) {
+      return { success: false, error: 'Please select or add a bank account first.' };
     }
 
-    if (!supabaseClient || forceMockMode) {
-      const newRequest = {
-        id: `req-mock-${Date.now().toString().slice(-6)}`,
-        creator_id: creatorId,
-        amount: reqAmount,
-        payout_method: method,
-        account_details: accountDetails,
-        status: 'pending',
-        admin_notes: null,
-        requested_at: new Date().toISOString(),
-        processed_at: null
-      };
-      mockPayoutRequests.push(newRequest);
-      return { success: true, request: newRequest };
+    // Try atomic SQL function first
+    if (supabaseClient) {
+      try {
+        const { data: rpcResult, error: rpcError } = await supabaseClient.rpc('create_seller_withdrawal_locked', {
+          p_seller_id: creatorId,
+          p_store_id: storeId,
+          p_bank_account_id: bankAccountId,
+          p_amount: reqAmount,
+          p_fee: fee
+        });
+
+        if (!rpcError && rpcResult) {
+          if (rpcResult.success) {
+            return { success: true, withdrawal: rpcResult.withdrawal };
+          } else {
+            return { success: false, error: rpcResult.error };
+          }
+        }
+      } catch (e) {
+        // Fallback to manual check & insert
+      }
     }
 
+    // Fallback reservation logic
     try {
-      const { data, error } = await supabaseClient
-        .from('payout_requests')
+      const summary = await walletService.getWalletOverview(creatorId, storeId);
+      if (reqAmount > summary.withdrawableBalance) {
+        return {
+          success: false,
+          error: `Insufficient withdrawable balance. You have ₹${summary.withdrawableBalance.toLocaleString()} available.`
+        };
+      }
+
+      const withdrawalNumber = 'WD' + Date.now().toString().slice(-8);
+      const netAmount = reqAmount - fee;
+
+      const { data: withdrawal, error } = await supabaseClient
+        .from('withdrawals')
         .insert([{
-          creator_id: creatorId,
+          withdrawal_number: withdrawalNumber,
+          seller_id: creatorId,
+          store_id: storeId,
+          bank_account_id: bankAccountId,
           amount: reqAmount,
-          payout_method: method,
-          account_details: accountDetails,
+          fee: fee,
+          net_amount: netAmount,
           status: 'pending'
         }])
         .select()
         .single();
 
-      if (error) {
-        if (error.code === '42P01' || error.code === 'PGRST205') {
-          forceMockMode = true;
-          return payoutService.createPayoutRequest(creatorId, amount, method, accountDetails);
-        }
-        throw error;
-      }
-      return { success: true, request: data };
-    } catch (e) {
-      console.error('Error creating payout request:', e);
-      forceMockMode = true;
-      return payoutService.createPayoutRequest(creatorId, amount, method, accountDetails);
+      if (error) throw error;
+
+      // Log in wallet_transactions
+      await supabaseClient
+        .from('wallet_transactions')
+        .insert([{
+          creator_id: creatorId,
+          type: 'Payout Request',
+          amount: -reqAmount,
+          status: 'pending',
+          reference_id: withdrawal.id
+        }]);
+
+      return { success: true, withdrawal };
+    } catch (err) {
+      console.error('❌ [payoutService.createPayoutRequest] Error:', err);
+      return { success: false, error: err.message || 'Failed to submit withdrawal request.' };
     }
   },
 
   /**
-   * Fetch all earnings across the platform for admin stats.
-   */
-  adminGetAllEarnings: async () => {
-    if (!supabaseClient || forceMockMode) {
-      return mockCreatorEarnings;
-    }
-    try {
-      const { data, error } = await supabaseClient
-        .from('creator_earnings')
-        .select('*');
-      if (error) {
-        if (error.code === '42P01' || error.code === 'PGRST205') {
-          forceMockMode = true;
-          return payoutService.adminGetAllEarnings();
-        }
-        throw error;
-      }
-      return (data || []).map(e => ({
-        ...e,
-        creator_amount: parseFloat(e.creator_amount || 0)
-      }));
-    } catch (e) {
-      console.error('Error fetching admin earnings:', e);
-      forceMockMode = true;
-      return payoutService.adminGetAllEarnings();
-    }
-  },
-
-  /**
-   * Fetch all payout requests for platform admin moderation.
+   * Fetch all payout requests for platform admin moderation
    */
   adminGetPayoutRequests: async () => {
-    if (!supabaseClient || forceMockMode) {
-      seedMockData();
-      return mockPayoutRequests.map(r => ({
-        id: r.id,
-        creatorId: r.creator_id,
-        creatorName: 'Mock Creator',
-        creatorEmail: 'creator@example.com',
-        amount: r.amount,
-        method: r.payout_method,
-        accountDetails: r.account_details,
-        status: r.status,
-        adminNotes: r.admin_notes,
-        requestedAt: r.requested_at ? r.requested_at.split('T')[0] : 'N/A',
-        processedAt: r.processed_at ? r.processed_at.split('T')[0] : null
-      }));
-    }
+    if (!supabaseClient) return [];
 
     try {
-      const { data, error } = await supabaseClient
-        .from('payout_requests')
-        .select('*, creator:creator_id(name, email)')
+      // 1. Fetch from withdrawals
+      const { data: withdrawals, error } = await supabaseClient
+        .from('withdrawals')
+        .select(`
+          *,
+          bank_account:bank_account_id(*),
+          seller:seller_id(name, phone),
+          store:store_id(name, slug)
+        `)
         .order('requested_at', { ascending: false });
 
-      if (error) {
-        console.warn('[Kreatorstore - PayoutService] Fallback to mock mode due to DB error:', error);
-        forceMockMode = true;
-        return payoutService.adminGetPayoutRequests();
+      if (!error && withdrawals && withdrawals.length > 0) {
+        return withdrawals.map(w => ({
+          id: w.id,
+          withdrawalNumber: w.withdrawal_number,
+          creatorId: w.seller_id,
+          creatorName: w.seller?.name || 'Seller',
+          storeName: w.store?.name || 'Store',
+          storeSlug: w.store?.slug || '',
+          amount: parseFloat(w.amount),
+          fee: parseFloat(w.fee || 0),
+          netAmount: parseFloat(w.net_amount || w.amount),
+          method: 'Bank Transfer',
+          bankName: w.bank_account?.bank_name || 'Bank',
+          accountHolder: w.bank_account?.account_holder_name || 'N/A',
+          accountDetails: w.bank_account ? `${w.bank_account.bank_name} (${w.bank_account.account_number_masked})` : 'Bank Transfer',
+          ifsc: w.bank_account?.ifsc_code || 'N/A',
+          status: w.status,
+          adminNotes: w.admin_notes,
+          failureReason: w.failure_reason,
+          rejectionReason: w.rejection_reason,
+          payoutProvider: w.payout_provider || 'MOCK',
+          providerRefId: w.payout_reference_id,
+          requestedAt: w.requested_at ? w.requested_at.split('T')[0] : 'N/A',
+          processedAt: w.processed_at ? w.processed_at.split('T')[0] : null
+        }));
       }
-      return (data || []).map(r => ({
+
+      // Fallback to legacy payout_requests
+      const { data: legacy } = await supabaseClient
+        .from('payout_requests')
+        .select('*, creator:creator_id(name)')
+        .order('requested_at', { ascending: false });
+
+      return (legacy || []).map(r => ({
         id: r.id,
+        withdrawalNumber: r.id.substring(0, 8).toUpperCase(),
         creatorId: r.creator_id,
-        creatorName: r.creator?.name || 'Unknown Creator',
-        creatorEmail: r.creator?.email || 'N/A',
+        creatorName: r.creator?.name || 'Seller',
+        storeName: 'Store',
         amount: parseFloat(r.amount),
+        fee: 0,
+        netAmount: parseFloat(r.amount),
         method: r.payout_method,
+        bankName: r.payout_method,
+        accountHolder: 'N/A',
         accountDetails: r.account_details,
+        ifsc: 'N/A',
         status: r.status,
         adminNotes: r.admin_notes,
         requestedAt: r.requested_at ? r.requested_at.split('T')[0] : 'N/A',
         processedAt: r.processed_at ? r.processed_at.split('T')[0] : null
       }));
-    } catch (e) {
-      console.error('Error fetching admin payout requests:', e);
-      forceMockMode = true;
-      return payoutService.adminGetPayoutRequests();
+    } catch (err) {
+      console.error('❌ [payoutService.adminGetPayoutRequests] Error:', err);
+      return [];
     }
   },
 
   /**
-   * Update payout request status (Approved, Rejected, Completed).
+   * Admin actions: Approve, Process Payout Transfer, Reject, or Mark Complete
    */
-  adminUpdatePayoutStatus: async (requestId, status, notes = '') => {
-    const adminEmail = 'admin@kreatorstore.com'; // Admin seeded identifier
-
-    if (!supabaseClient || forceMockMode) {
-      const req = mockPayoutRequests.find(r => r.id === requestId);
-      if (!req) return { success: false, error: 'Request not found.' };
-
-      req.status = status;
-      req.admin_notes = notes;
-      req.processed_at = new Date().toISOString();
-
-      // If status is marked completed, consume mock available earnings ledger
-      if (status === 'completed') {
-        let accumulated = 0.00;
-        mockCreatorEarnings
-          .filter(e => e.creator_id === req.creator_id && e.status === 'available')
-          .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-          .forEach(e => {
-            if (accumulated < req.amount) {
-              e.status = 'paid';
-              accumulated += parseFloat(e.creator_amount || 0);
-            }
-          });
-      }
-      return { success: true };
+  adminUpdatePayoutStatus: async (withdrawalId, targetStatus, notes = '', rejectionReason = '') => {
+    if (!supabaseClient || !withdrawalId) {
+      return { success: false, error: 'Missing parameters.' };
     }
 
     try {
-      if (status === 'completed') {
-        // Complete via SQL RPC to ensure secure atomic ledger updates
-        const { data, error } = await supabaseClient
-          .rpc('admin_complete_payout', { p_request_id: requestId, p_admin_email: adminEmail });
+      // If completing or approving with provider payout
+      if (targetStatus === 'processing' || targetStatus === 'approved') {
+        const provider = PayoutFactory.getProvider();
 
-        if (error) {
-          if (error.code === '42P01' || error.code === 'PGRST205') {
-            forceMockMode = true;
-            return payoutService.adminUpdatePayoutStatus(requestId, status, notes);
-          }
-          throw error;
-        }
-        
-        // Also update notes
-        if (notes) {
-          await supabaseClient
-            .from('payout_requests')
-            .update({ admin_notes: notes })
-            .eq('id', requestId);
-        }
-        return { success: true };
-      } else {
-        const { error } = await supabaseClient
-          .from('payout_requests')
-          .update({
-            status,
-            admin_notes: notes,
-            processed_at: new Date().toISOString()
-          })
-          .eq('id', requestId);
+        // Fetch withdrawal & bank details
+        const { data: withdrawal } = await supabaseClient
+          .from('withdrawals')
+          .select('*, bank_account:bank_account_id(*)')
+          .eq('id', withdrawalId)
+          .single();
 
-        if (error) {
-          if (error.code === '42P01' || error.code === 'PGRST205') {
-            forceMockMode = true;
-            return payoutService.adminUpdatePayoutStatus(requestId, status, notes);
+        if (withdrawal && withdrawal.bank_account) {
+          const transferRes = await provider.createTransfer({
+            withdrawalId: withdrawal.id,
+            withdrawalNumber: withdrawal.withdrawal_number,
+            amount: parseFloat(withdrawal.net_amount || withdrawal.amount),
+            bankAccount: withdrawal.bank_account
+          });
+
+          if (transferRes.success) {
+            // Update withdrawal with provider reference
+            await supabaseClient
+              .from('withdrawals')
+              .update({
+                status: 'processing',
+                payout_provider: provider.name,
+                payout_reference_id: transferRes.providerRefId,
+                admin_notes: notes || transferRes.message,
+                processed_at: new Date().toISOString()
+              })
+              .eq('id', withdrawalId);
+
+            return { success: true, status: 'processing', providerRefId: transferRes.providerRefId };
           }
-          throw error;
         }
-        return { success: true };
       }
-    } catch (e) {
-      console.error('Error updating payout request status:', e);
-      forceMockMode = true;
-      return payoutService.adminUpdatePayoutStatus(requestId, status, notes);
+
+      // Complete via atomic RPC
+      if (targetStatus === 'completed') {
+        const { data: rpcRes, error: rpcErr } = await supabaseClient.rpc('process_withdrawal_status_atomic', {
+          p_withdrawal_id: withdrawalId,
+          p_new_status: 'completed',
+          p_admin_notes: notes
+        });
+
+        if (!rpcErr && rpcRes && rpcRes.success) {
+          return { success: true, status: 'completed' };
+        }
+      }
+
+      // Reject via atomic RPC
+      if (targetStatus === 'rejected') {
+        const { data: rpcRes, error: rpcErr } = await supabaseClient.rpc('process_withdrawal_status_atomic', {
+          p_withdrawal_id: withdrawalId,
+          p_new_status: 'rejected',
+          p_admin_notes: notes,
+          p_rejection_reason: rejectionReason
+        });
+
+        if (!rpcErr && rpcRes && rpcRes.success) {
+          return { success: true, status: 'rejected' };
+        }
+      }
+
+      // Direct status fallback
+      await supabaseClient
+        .from('withdrawals')
+        .update({
+          status: targetStatus,
+          admin_notes: notes,
+          rejection_reason: rejectionReason,
+          processed_at: new Date().toISOString(),
+          completed_at: targetStatus === 'completed' ? new Date().toISOString() : null
+        })
+        .eq('id', withdrawalId);
+
+      // Sync wallet_transactions
+      await supabaseClient
+        .from('wallet_transactions')
+        .update({
+          status: targetStatus,
+          type: targetStatus === 'completed' ? 'Payout Completed' : 'Payout Request'
+        })
+        .eq('reference_id', withdrawalId);
+
+      return { success: true };
+    } catch (err) {
+      console.error('❌ [payoutService.adminUpdatePayoutStatus] Error:', err);
+      return { success: false, error: err.message || 'Failed to update withdrawal status.' };
     }
   }
 };
