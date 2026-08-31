@@ -160,6 +160,18 @@ export default function CreatorWallet() {
     }
   };
 
+  const openAddBankModal = () => {
+    setBankForm({
+      accountHolderName: '',
+      bankName: '',
+      accountNumber: '',
+      confirmAccountNumber: '',
+      ifscCode: '',
+      accountType: 'SAVINGS'
+    });
+    setBankModalOpen(true);
+  };
+
   const getTransactionTypeColor = (type) => {
     switch (type) {
       case 'Sale Credit': return '#10b981';
@@ -301,7 +313,7 @@ export default function CreatorWallet() {
           </div>
           <button 
             className="btn-secondary-action" 
-            onClick={() => setBankModalOpen(true)}
+            onClick={openAddBankModal}
           >
             {bankAccounts.length > 0 ? 'Change Bank Details' : '+ Add Bank Account'}
           </button>
@@ -335,7 +347,7 @@ export default function CreatorWallet() {
         ) : (
           <div className="no-bank-banner">
             <p>No bank account linked yet. Please link your bank details to enable payouts.</p>
-            <button className="btn-add-bank" onClick={() => setBankModalOpen(true)}>Add Bank Account</button>
+            <button className="btn-add-bank" onClick={openAddBankModal}>Add Bank Account</button>
           </div>
         )}
       </div>
@@ -374,14 +386,14 @@ export default function CreatorWallet() {
                   <span>{selectedBank.account_holder_name}</span>
                   <span className="sb-acc">{selectedBank.account_number_masked}</span>
                 </div>
-                <button type="button" className="sb-change-btn" onClick={() => { setWithdrawModalOpen(false); setBankModalOpen(true); }}>
+                <button type="button" className="sb-change-btn" onClick={() => { setWithdrawModalOpen(false); openAddBankModal(); }}>
                   Change
                 </button>
               </div>
             ) : (
               <div className="no-bank-alert">
                 <span>No bank account found. Please add a bank account first.</span>
-                <button type="button" className="btn-add-bank-inline" onClick={() => { setWithdrawModalOpen(false); setBankModalOpen(true); }}>
+                <button type="button" className="btn-add-bank-inline" onClick={() => { setWithdrawModalOpen(false); openAddBankModal(); }}>
                   + Add Bank Details
                 </button>
               </div>
@@ -461,15 +473,18 @@ export default function CreatorWallet() {
         onClose={() => setBankModalOpen(false)}
         title="Add Bank Account"
       >
-        <form onSubmit={handleBankSubmit} className="bank-modal-form">
+        <form onSubmit={handleBankSubmit} className="bank-modal-form" autoComplete="off">
           <div className="form-group">
             <label htmlFor="account-holder">Account Holder Name (as in bank)</label>
             <input
               id="account-holder"
+              name="holder_name_no_autofill"
               type="text"
               placeholder="e.g. Anushka Singh"
               value={bankForm.accountHolderName}
               onChange={(e) => setBankForm({ ...bankForm, accountHolderName: e.target.value })}
+              autoComplete="off"
+              data-lpignore="true"
               required
             />
           </div>
@@ -478,10 +493,13 @@ export default function CreatorWallet() {
             <label htmlFor="bank-name">Bank Name</label>
             <input
               id="bank-name"
+              name="bank_name_no_autofill"
               type="text"
               placeholder="e.g. HDFC Bank, SBI, ICICI Bank"
               value={bankForm.bankName}
               onChange={(e) => setBankForm({ ...bankForm, bankName: e.target.value })}
+              autoComplete="off"
+              data-lpignore="true"
               required
             />
           </div>
@@ -491,10 +509,14 @@ export default function CreatorWallet() {
               <label htmlFor="acc-num">Account Number</label>
               <input
                 id="acc-num"
-                type="password"
+                name="bank_acc_num_field"
+                type="text"
+                inputMode="numeric"
                 placeholder="Enter bank account number"
                 value={bankForm.accountNumber}
-                onChange={(e) => setBankForm({ ...bankForm, accountNumber: e.target.value })}
+                onChange={(e) => setBankForm({ ...bankForm, accountNumber: e.target.value.replace(/\D/g, '') })}
+                autoComplete="off"
+                data-lpignore="true"
                 required
               />
             </div>
@@ -502,10 +524,14 @@ export default function CreatorWallet() {
               <label htmlFor="acc-confirm">Confirm Account Number</label>
               <input
                 id="acc-confirm"
+                name="bank_acc_confirm_field"
                 type="text"
+                inputMode="numeric"
                 placeholder="Re-enter account number"
                 value={bankForm.confirmAccountNumber}
-                onChange={(e) => setBankForm({ ...bankForm, confirmAccountNumber: e.target.value })}
+                onChange={(e) => setBankForm({ ...bankForm, confirmAccountNumber: e.target.value.replace(/\D/g, '') })}
+                autoComplete="off"
+                data-lpignore="true"
                 required
               />
             </div>
@@ -516,11 +542,14 @@ export default function CreatorWallet() {
               <label htmlFor="ifsc">IFSC Code</label>
               <input
                 id="ifsc"
+                name="bank_ifsc_field"
                 type="text"
                 placeholder="e.g. HDFC0000123"
                 value={bankForm.ifscCode}
                 onChange={(e) => setBankForm({ ...bankForm, ifscCode: e.target.value.toUpperCase() })}
                 maxLength={11}
+                autoComplete="off"
+                data-lpignore="true"
                 required
               />
             </div>
@@ -528,6 +557,7 @@ export default function CreatorWallet() {
               <label htmlFor="acc-type">Account Type</label>
               <select
                 id="acc-type"
+                name="bank_acc_type"
                 value={bankForm.accountType}
                 onChange={(e) => setBankForm({ ...bankForm, accountType: e.target.value })}
               >
