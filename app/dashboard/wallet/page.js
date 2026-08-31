@@ -559,11 +559,14 @@ export default function CreatorWallet() {
 
       <style jsx global>{`
         .wallet-page {
-          max-width: 1200px;
+          width: 100%;
+          max-width: 100%;
           margin: 0 auto;
           display: flex;
           flex-direction: column;
           gap: 28px;
+          overflow-x: hidden;
+          box-sizing: border-box;
         }
 
         .page-header {

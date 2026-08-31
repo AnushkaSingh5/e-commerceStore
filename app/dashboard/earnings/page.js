@@ -196,11 +196,13 @@ export default function EarningsPage() {
 
       <style jsx global>{`
         .earnings-page {
-          max-width: 1200px;
+          width: 100%;
+          max-width: 100%;
           margin: 0 auto;
           display: flex;
           flex-direction: column;
           gap: 28px;
+          overflow-x: hidden;
         }
 
         .page-header {
@@ -247,6 +249,7 @@ export default function EarningsPage() {
           display: grid;
           grid-template-columns: repeat(4, 1fr);
           gap: 20px;
+          width: 100%;
         }
 
         .summary-card {
@@ -304,9 +307,10 @@ export default function EarningsPage() {
         }
 
         .tables-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 24px;
+          display: flex;
+          flex-direction: column;
+          gap: 28px;
+          width: 100%;
         }
 
         .table-card {
@@ -314,6 +318,8 @@ export default function EarningsPage() {
           border-radius: 20px;
           padding: 24px;
           border: 1px solid #f1f5f9;
+          width: 100%;
+          box-sizing: border-box;
         }
 
         .card-header h3 {
