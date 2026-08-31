@@ -2,8 +2,10 @@
 
 import { useState, useEffect, use } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useStore } from '@/context/StoreContext';
 import { useAuth } from '@/context/AuthContext';
+import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { storeService } from '@/services/storeService';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
@@ -11,8 +13,10 @@ import StoreUnderReview from '@/components/StoreUnderReview';
 
 export default function CartPage({ params }) {
   const { slug } = use(params);
+  const router = useRouter();
   const { cart: globalCart, updateQuantity, removeFromCart, clearCart } = useStore();
   const { user, loading: authLoading } = useAuth();
+  const { customer, loading: customerAuthLoading } = useCustomerAuth();
   const [storeDetails, setStoreDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedItems, setSelectedItems] = useState([]);
@@ -169,6 +173,25 @@ export default function CartPage({ params }) {
   const tax = 0;
   const hasInventoryErrors = selectedCartItems.some(item => item.stock === 0 || item.quantity > item.stock || item.is_deleted);
 
+  const handleRowBuy = (itemId) => {
+    const checkoutUrl = `/store/${slug}/checkout?items=${itemId}`;
+    if (!customer) {
+      router.push(`/store/${slug}/login?redirect=${encodeURIComponent(checkoutUrl)}`);
+    } else {
+      router.push(checkoutUrl);
+    }
+  };
+
+  const handleProceedToCheckout = () => {
+    if (selectedItems.length === 0 || hasInventoryErrors) return;
+    const checkoutUrl = `/store/${slug}/checkout?items=${selectedItems.join(',')}`;
+    if (!customer) {
+      router.push(`/store/${slug}/login?redirect=${encodeURIComponent(checkoutUrl)}`);
+    } else {
+      router.push(checkoutUrl);
+    }
+  };
+
   // Cart displays pure product subtotal. Shipping is calculated only at checkout.
   const total = cartTotal;
 
@@ -279,9 +302,9 @@ export default function CartPage({ params }) {
                         Buy
                       </button>
                     ) : (
-                      <Link href={`/store/${slug}/checkout?items=${item.id}`} className="row-buy-btn">
+                      <button onClick={() => handleRowBuy(item.id)} className="row-buy-btn" style={{ cursor: 'pointer', border: 'none' }}>
                         Buy
-                      </Link>
+                      </button>
                     )}
                     <button className="action-delete-btn" onClick={() => removeFromCart(item.id)} title="Remove from cart">
                       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -323,9 +346,13 @@ export default function CartPage({ params }) {
                   Proceed to Checkout
                 </button>
               ) : (
-                <Link href={`/store/${slug}/checkout?items=${selectedItems.join(',')}`} className="checkout-btn" style={{ display: 'block', textAlign: 'center', textDecoration: 'none' }}>
+                <button 
+                  onClick={handleProceedToCheckout} 
+                  className="checkout-btn" 
+                  style={{ width: '100%', display: 'block', textAlign: 'center', border: 'none', cursor: 'pointer' }}
+                >
                   Proceed to Checkout
-                </Link>
+                </button>
               )}
 
               <div className="payment-icons">
