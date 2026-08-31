@@ -249,7 +249,8 @@ export function StoreProvider({ children }) {
   };
 
   const clearCart = async (storeIdOrSlug = null) => {
-    if (storeIdOrSlug) {
+    const isExplicitSlug = typeof storeIdOrSlug === 'string' && storeIdOrSlug.trim() !== '';
+    if (isExplicitSlug) {
       const updatedCart = cart.filter(
         (item) => item.store_id !== storeIdOrSlug && item.store_slug !== storeIdOrSlug
       );
@@ -259,14 +260,16 @@ export function StoreProvider({ children }) {
           let activeCartId = dbCartId;
           if (!activeCartId) {
             const dbCart = await cartService.getOrCreateCart(customerProfile.id);
-            activeCartId = dbCart.id;
-            setDbCartId(activeCartId);
+            activeCartId = dbCart?.id;
+            if (activeCartId) setDbCartId(activeCartId);
           }
-          const itemsToRemove = cart.filter(
-            (item) => item.store_id === storeIdOrSlug || item.store_slug === storeIdOrSlug
-          );
-          for (const item of itemsToRemove) {
-            await cartService.removeCartItem(activeCartId, item.id);
+          if (activeCartId) {
+            const itemsToRemove = cart.filter(
+              (item) => item.store_id === storeIdOrSlug || item.store_slug === storeIdOrSlug
+            );
+            for (const item of itemsToRemove) {
+              await cartService.removeCartItem(activeCartId, item.id);
+            }
           }
         } catch (err) {
           console.warn('Failed to clear store cart in DB:', err);
@@ -277,7 +280,23 @@ export function StoreProvider({ children }) {
       }
     } else {
       setCart([]);
-      await saveCartToStorage([], null, null);
+      if (customerProfile) {
+        try {
+          let activeCartId = dbCartId;
+          if (!activeCartId) {
+            const dbCart = await cartService.getOrCreateCart(customerProfile.id);
+            activeCartId = dbCart?.id;
+            if (activeCartId) setDbCartId(activeCartId);
+          }
+          if (activeCartId) {
+            await cartService.clearCart(activeCartId);
+          }
+        } catch (err) {
+          console.warn('Failed to clear full DB cart:', err);
+        }
+      }
+      sessionStorage.removeItem('luxe_cart_guest');
+      localStorage.removeItem('luxe_cart_guest');
     }
   };
 

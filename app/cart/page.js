@@ -80,7 +80,7 @@ export default function CartPage() {
               ))}
 
               <div className="cart-footer">
-                <button className="clear-btn" onClick={clearCart}>Clear Cart</button>
+                <button className="clear-btn" onClick={() => clearCart()}>Clear Cart</button>
                 <Link href="/" className="back-link">← Continue Shopping</Link>
               </div>
             </div>
