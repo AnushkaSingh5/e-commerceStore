@@ -9,7 +9,6 @@ export const payoutService = {
   getCreatorEarningsSummary: async (creatorId, storeId) => {
     const overview = await walletService.getWalletOverview(creatorId, storeId);
     
-    // Count lifetime orders
     let orderCount = 0;
     if (supabaseClient && creatorId) {
       const { count } = await supabaseClient
@@ -22,7 +21,7 @@ export const payoutService = {
     return {
       totalEarnings: overview.totalEarnings,
       pendingEarnings: overview.pendingEarnings,
-      availableEarnings: overview.withdrawableBalance, // Strict withdrawable balance
+      availableEarnings: overview.withdrawableBalance,
       rawAvailableEarnings: overview.rawAvailableEarnings,
       reservedBalance: overview.reservedBalance,
       totalPayouts: overview.totalPayouts,
@@ -68,7 +67,6 @@ export const payoutService = {
     if (!supabaseClient || !creatorId) return [];
 
     try {
-      // 1. Fetch from new withdrawals table
       const { data: withdrawals, error } = await supabaseClient
         .from('withdrawals')
         .select('*, bank_account:bank_account_id(*)')
@@ -92,7 +90,7 @@ export const payoutService = {
         }));
       }
 
-      // Fallback to legacy payout_requests
+      // Legacy fallback
       const { data: legacy } = await supabaseClient
         .from('payout_requests')
         .select('*')
@@ -137,7 +135,6 @@ export const payoutService = {
       return { success: false, error: 'Please select or add a bank account first.' };
     }
 
-    // Try atomic SQL function first
     if (supabaseClient) {
       try {
         const { data: rpcResult, error: rpcError } = await supabaseClient.rpc('create_seller_withdrawal_locked', {
@@ -156,11 +153,11 @@ export const payoutService = {
           }
         }
       } catch (e) {
-        // Fallback to manual check & insert
+        // Fallback
       }
     }
 
-    // Fallback reservation logic
+    // Direct fallback
     try {
       const summary = await walletService.getWalletOverview(creatorId, storeId);
       if (reqAmount > summary.withdrawableBalance) {
@@ -190,7 +187,6 @@ export const payoutService = {
 
       if (error) throw error;
 
-      // Log in wallet_transactions
       await supabaseClient
         .from('wallet_transactions')
         .insert([{
@@ -209,179 +205,535 @@ export const payoutService = {
   },
 
   /**
-   * Fetch all payout requests for platform admin moderation
+   * Fetch all creator earnings across platform (for admin calculations)
    */
-  adminGetPayoutRequests: async () => {
+  adminGetAllEarnings: async () => {
     if (!supabaseClient) return [];
+    try {
+      const { data, error } = await supabaseClient
+        .from('creator_earnings')
+        .select('creator_amount, status, created_at');
+      if (error) return [];
+      return data || [];
+    } catch (e) {
+      return [];
+    }
+  },
+
+  /**
+   * Fetch comprehensive Admin Payouts list with metrics, search, filtering, and pagination
+   */
+  adminGetPayoutRequests: async (options = {}) => {
+    if (!supabaseClient) {
+      return {
+        payouts: [],
+        totalCount: 0,
+        stats: { platformRevenue: 0, totalSettled: 0, pendingRequests: 0, outstandingAvailable: 0 }
+      };
+    }
+
+    const { page = 1, limit = 25, status = 'All', search = '' } = options;
 
     try {
-      // 1. Fetch from withdrawals
-      const { data: withdrawals, error } = await supabaseClient
+      // 1. Calculate Authoritative Platform Metrics
+      const [earningsRes, withdrawalsRes, legacyRes] = await Promise.all([
+        supabaseClient.from('creator_earnings').select('creator_amount, status, created_at'),
+        supabaseClient.from('withdrawals').select('amount, status'),
+        supabaseClient.from('payout_requests').select('amount, status')
+      ]);
+
+      const allEarnings = earningsRes.data || [];
+      const allWithdrawals = withdrawalsRes.data || [];
+      const allLegacy = legacyRes.data || [];
+
+      // Total creator revenue generated from valid sales
+      const platformRevenue = allEarnings.reduce((sum, e) => sum + parseFloat(e.creator_amount || 0), 0);
+
+      // Total settled (completed payouts)
+      const totalSettledWithdrawals = allWithdrawals
+        .filter(w => w.status === 'completed')
+        .reduce((sum, w) => sum + parseFloat(w.amount || 0), 0);
+      const totalSettledLegacy = allLegacy
+        .filter(p => p.status === 'completed')
+        .reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+      const totalSettled = totalSettledWithdrawals + totalSettledLegacy;
+
+      // Pending payout requests count (in pending, approved, processing)
+      const pendingCountWithdrawals = allWithdrawals.filter(w => ['pending', 'approved', 'processing'].includes(w.status)).length;
+      const pendingCountLegacy = allLegacy.filter(p => ['pending', 'approved'].includes(p.status)).length;
+      const pendingRequests = pendingCountWithdrawals + pendingCountLegacy;
+
+      // Total reserved balance
+      const totalReserved = allWithdrawals
+        .filter(w => ['pending', 'approved', 'processing'].includes(w.status))
+        .reduce((sum, w) => sum + parseFloat(w.amount || 0), 0) +
+        allLegacy
+          .filter(p => ['pending', 'approved'].includes(p.status))
+          .reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+
+      // Available unwithdrawn earnings
+      const totalAvailableRaw = allEarnings
+        .filter(e => e.status === 'available')
+        .reduce((sum, e) => sum + parseFloat(e.creator_amount || 0), 0);
+
+      // Outstanding Available Balance = Raw Available minus Reserved
+      const outstandingAvailable = Math.max(0, totalAvailableRaw - totalReserved);
+
+      // 2. Query Paginated & Filtered Withdrawals
+      let query = supabaseClient
+        .from('withdrawals')
+        .select(`
+          *,
+          bank_account:bank_account_id(id, account_holder_name, bank_name, account_number_masked, ifsc_code, account_type),
+          seller:seller_id(id, name, phone),
+          store:store_id(id, name, slug)
+        `, { count: 'exact' });
+
+      if (status && status !== 'All') {
+        query = query.eq('status', status.toLowerCase());
+      }
+
+      query = query.order('requested_at', { ascending: false });
+
+      const from = (page - 1) * limit;
+      const to = from + limit - 1;
+      query = query.range(from, to);
+
+      const { data: withdrawals, count, error } = await query;
+
+      if (error) throw error;
+
+      let formatted = (withdrawals || []).map(w => ({
+        id: w.id,
+        withdrawalNumber: w.withdrawal_number,
+        sellerId: w.seller_id,
+        sellerName: w.seller?.name || 'Seller',
+        sellerPhone: w.seller?.phone || 'N/A',
+        storeName: w.store?.name || 'Store',
+        storeSlug: w.store?.slug || '',
+        amount: parseFloat(w.amount),
+        fee: parseFloat(w.fee || 0),
+        netAmount: parseFloat(w.net_amount || w.amount),
+        method: 'Bank Transfer',
+        bankName: w.bank_account?.bank_name || 'Bank',
+        accountHolder: w.bank_account?.account_holder_name || w.seller?.name || 'N/A',
+        accountNumberMasked: w.bank_account?.account_number_masked || '••••',
+        accountDetails: w.bank_account ? `${w.bank_account.bank_name} (${w.bank_account.account_number_masked})` : 'Bank Transfer',
+        ifsc: w.bank_account?.ifsc_code || 'N/A',
+        accountType: w.bank_account?.account_type || 'SAVINGS',
+        status: w.status,
+        adminNotes: w.admin_notes,
+        failureReason: w.failure_reason,
+        rejectionReason: w.rejection_reason,
+        payoutProvider: w.payout_provider || 'MOCK',
+        providerRefId: w.payout_reference_id,
+        requestedAt: w.requested_at ? new Date(w.requested_at).toLocaleString() : 'N/A',
+        processedAt: w.processed_at ? new Date(w.processed_at).toLocaleString() : null,
+        completedAt: w.completed_at ? new Date(w.completed_at).toLocaleString() : null
+      }));
+
+      // Search filtering
+      if (search && search.trim()) {
+        const q = search.trim().toLowerCase();
+        formatted = formatted.filter(r =>
+          (r.withdrawalNumber || '').toLowerCase().includes(q) ||
+          (r.sellerName || '').toLowerCase().includes(q) ||
+          (r.storeName || '').toLowerCase().includes(q) ||
+          (r.providerRefId || '').toLowerCase().includes(q) ||
+          (r.accountHolder || '').toLowerCase().includes(q)
+        );
+      }
+
+      return {
+        payouts: formatted,
+        totalCount: count || formatted.length,
+        totalPages: Math.ceil((count || formatted.length) / limit),
+        currentPage: page,
+        stats: {
+          platformRevenue,
+          totalSettled,
+          pendingRequests,
+          outstandingAvailable
+        }
+      };
+    } catch (err) {
+      console.error('❌ [payoutService.adminGetPayoutRequests] Error:', err);
+      return {
+        payouts: [],
+        totalCount: 0,
+        stats: { platformRevenue: 0, totalSettled: 0, pendingRequests: 0, outstandingAvailable: 0 }
+      };
+    }
+  },
+
+  /**
+   * Fetch complete payout drawer details including financial impact, timeline & audit log
+   */
+  adminGetPayoutDetails: async (withdrawalId) => {
+    if (!supabaseClient || !withdrawalId) return null;
+
+    try {
+      const { data: w, error } = await supabaseClient
         .from('withdrawals')
         .select(`
           *,
           bank_account:bank_account_id(*),
-          seller:seller_id(name, phone),
-          store:store_id(name, slug)
+          seller:seller_id(id, name, phone),
+          store:store_id(id, name, slug)
         `)
-        .order('requested_at', { ascending: false });
+        .eq('id', withdrawalId)
+        .single();
 
-      if (!error && withdrawals && withdrawals.length > 0) {
-        return withdrawals.map(w => ({
+      if (error || !w) return null;
+
+      // 1. Fetch Seller Ledger Snapshot
+      const sellerOverview = await walletService.getWalletOverview(w.seller_id, w.store_id);
+
+      // 2. Fetch Audit Logs
+      const { data: auditLogs } = await supabaseClient
+        .from('payout_audit_logs')
+        .select('*')
+        .eq('withdrawal_id', withdrawalId)
+        .order('created_at', { ascending: false });
+
+      // 3. Fetch Payout Attempts
+      const { data: attempts } = await supabaseClient
+        .from('payout_attempts')
+        .select('*')
+        .eq('withdrawal_id', withdrawalId)
+        .order('created_at', { ascending: false });
+
+      return {
+        payout: {
           id: w.id,
           withdrawalNumber: w.withdrawal_number,
-          creatorId: w.seller_id,
-          creatorName: w.seller?.name || 'Seller',
+          sellerId: w.seller_id,
+          sellerName: w.seller?.name || 'Seller',
+          sellerPhone: w.seller?.phone || 'N/A',
           storeName: w.store?.name || 'Store',
           storeSlug: w.store?.slug || '',
           amount: parseFloat(w.amount),
           fee: parseFloat(w.fee || 0),
           netAmount: parseFloat(w.net_amount || w.amount),
           method: 'Bank Transfer',
-          bankName: w.bank_account?.bank_name || 'Bank',
-          accountHolder: w.bank_account?.account_holder_name || 'N/A',
-          accountDetails: w.bank_account ? `${w.bank_account.bank_name} (${w.bank_account.account_number_masked})` : 'Bank Transfer',
-          ifsc: w.bank_account?.ifsc_code || 'N/A',
+          bankAccount: w.bank_account ? {
+            bankName: w.bank_account.bank_name,
+            accountHolderName: w.bank_account.account_holder_name,
+            accountNumberMasked: w.bank_account.account_number_masked,
+            ifscCode: w.bank_account.ifsc_code,
+            accountType: w.bank_account.account_type
+          } : null,
           status: w.status,
+          payoutProvider: w.payout_provider,
+          payoutReferenceId: w.payout_reference_id,
           adminNotes: w.admin_notes,
-          failureReason: w.failure_reason,
           rejectionReason: w.rejection_reason,
-          payoutProvider: w.payout_provider || 'MOCK',
-          providerRefId: w.payout_reference_id,
-          requestedAt: w.requested_at ? w.requested_at.split('T')[0] : 'N/A',
-          processedAt: w.processed_at ? w.processed_at.split('T')[0] : null
-        }));
-      }
-
-      // Fallback to legacy payout_requests
-      const { data: legacy } = await supabaseClient
-        .from('payout_requests')
-        .select('*, creator:creator_id(name)')
-        .order('requested_at', { ascending: false });
-
-      return (legacy || []).map(r => ({
-        id: r.id,
-        withdrawalNumber: r.id.substring(0, 8).toUpperCase(),
-        creatorId: r.creator_id,
-        creatorName: r.creator?.name || 'Seller',
-        storeName: 'Store',
-        amount: parseFloat(r.amount),
-        fee: 0,
-        netAmount: parseFloat(r.amount),
-        method: r.payout_method,
-        bankName: r.payout_method,
-        accountHolder: 'N/A',
-        accountDetails: r.account_details,
-        ifsc: 'N/A',
-        status: r.status,
-        adminNotes: r.admin_notes,
-        requestedAt: r.requested_at ? r.requested_at.split('T')[0] : 'N/A',
-        processedAt: r.processed_at ? r.processed_at.split('T')[0] : null
-      }));
+          failureReason: w.failure_reason,
+          requestedAt: w.requested_at,
+          processedAt: w.processed_at,
+          completedAt: w.completed_at
+        },
+        financialEffect: {
+          sellerLifetimeEarnings: sellerOverview.totalEarnings,
+          sellerAvailableBefore: sellerOverview.withdrawableBalance + (['pending', 'approved', 'processing'].includes(w.status) ? parseFloat(w.amount) : 0),
+          withdrawalReserved: parseFloat(w.amount),
+          sellerAvailableAfter: sellerOverview.withdrawableBalance,
+          sellerPendingEarnings: sellerOverview.pendingEarnings
+        },
+        auditLogs: auditLogs || [],
+        attempts: attempts || []
+      };
     } catch (err) {
-      console.error('❌ [payoutService.adminGetPayoutRequests] Error:', err);
-      return [];
+      console.error('❌ [payoutService.adminGetPayoutDetails] Error:', err);
+      return null;
     }
   },
 
   /**
-   * Admin actions: Approve, Process Payout Transfer, Reject, or Mark Complete
+   * Admin Approve Payout with Idempotent Transfer Execution
    */
-  adminUpdatePayoutStatus: async (withdrawalId, targetStatus, notes = '', rejectionReason = '') => {
+  adminApprovePayout: async (withdrawalId, adminUser, notes = '') => {
     if (!supabaseClient || !withdrawalId) {
       return { success: false, error: 'Missing parameters.' };
     }
 
     try {
-      // If completing or approving with provider payout
-      if (targetStatus === 'processing' || targetStatus === 'approved') {
-        const provider = PayoutFactory.getProvider();
-
-        // Fetch withdrawal & bank details
-        const { data: withdrawal } = await supabaseClient
-          .from('withdrawals')
-          .select('*, bank_account:bank_account_id(*)')
-          .eq('id', withdrawalId)
-          .single();
-
-        if (withdrawal && withdrawal.bank_account) {
-          const transferRes = await provider.createTransfer({
-            withdrawalId: withdrawal.id,
-            withdrawalNumber: withdrawal.withdrawal_number,
-            amount: parseFloat(withdrawal.net_amount || withdrawal.amount),
-            bankAccount: withdrawal.bank_account
-          });
-
-          if (transferRes.success) {
-            // Update withdrawal with provider reference
-            await supabaseClient
-              .from('withdrawals')
-              .update({
-                status: 'processing',
-                payout_provider: provider.name,
-                payout_reference_id: transferRes.providerRefId,
-                admin_notes: notes || transferRes.message,
-                processed_at: new Date().toISOString()
-              })
-              .eq('id', withdrawalId);
-
-            return { success: true, status: 'processing', providerRefId: transferRes.providerRefId };
-          }
-        }
-      }
-
-      // Complete via atomic RPC
-      if (targetStatus === 'completed') {
-        const { data: rpcRes, error: rpcErr } = await supabaseClient.rpc('process_withdrawal_status_atomic', {
-          p_withdrawal_id: withdrawalId,
-          p_new_status: 'completed',
-          p_admin_notes: notes
-        });
-
-        if (!rpcErr && rpcRes && rpcRes.success) {
-          return { success: true, status: 'completed' };
-        }
-      }
-
-      // Reject via atomic RPC
-      if (targetStatus === 'rejected') {
-        const { data: rpcRes, error: rpcErr } = await supabaseClient.rpc('process_withdrawal_status_atomic', {
-          p_withdrawal_id: withdrawalId,
-          p_new_status: 'rejected',
-          p_admin_notes: notes,
-          p_rejection_reason: rejectionReason
-        });
-
-        if (!rpcErr && rpcRes && rpcRes.success) {
-          return { success: true, status: 'rejected' };
-        }
-      }
-
-      // Direct status fallback
-      await supabaseClient
+      // 1. Fetch current status
+      const { data: withdrawal, error: fetchErr } = await supabaseClient
         .from('withdrawals')
-        .update({
-          status: targetStatus,
-          admin_notes: notes,
-          rejection_reason: rejectionReason,
-          processed_at: new Date().toISOString(),
-          completed_at: targetStatus === 'completed' ? new Date().toISOString() : null
-        })
-        .eq('id', withdrawalId);
+        .select('*, bank_account:bank_account_id(*)')
+        .eq('id', withdrawalId)
+        .single();
 
-      // Sync wallet_transactions
-      await supabaseClient
-        .from('wallet_transactions')
-        .update({
-          status: targetStatus,
-          type: targetStatus === 'completed' ? 'Payout Completed' : 'Payout Request'
-        })
-        .eq('reference_id', withdrawalId);
+      if (fetchErr || !withdrawal) {
+        return { success: false, error: 'Withdrawal not found.' };
+      }
 
-      return { success: true };
+      if (withdrawal.status !== 'pending' && withdrawal.status !== 'approved') {
+        return { success: false, error: `Cannot approve withdrawal with status: ${withdrawal.status}` };
+      }
+
+      // 2. Call Payout Provider
+      const provider = PayoutFactory.getProvider();
+      const transferRes = await provider.createTransfer({
+        withdrawalId: withdrawal.id,
+        withdrawalNumber: withdrawal.withdrawal_number,
+        amount: parseFloat(withdrawal.net_amount || withdrawal.amount),
+        bankAccount: withdrawal.bank_account
+      });
+
+      if (!transferRes.success) {
+        // Log attempt as failed
+        await supabaseClient.from('payout_attempts').insert([{
+          withdrawal_id: withdrawalId,
+          provider: provider.name,
+          status: 'FAILED',
+          error_message: transferRes.error,
+          raw_response: transferRes.rawResponse
+        }]);
+
+        return { success: false, error: transferRes.error || 'Payout provider rejected transfer.' };
+      }
+
+      // Record successful attempt
+      await supabaseClient.from('payout_attempts').insert([{
+        withdrawal_id: withdrawalId,
+        provider: provider.name,
+        provider_reference_id: transferRes.providerRefId,
+        status: 'PROCESSING',
+        raw_response: transferRes.rawResponse
+      }]);
+
+      // 3. Atomically transition state to PROCESSING
+      const { data: rpcRes, error: rpcErr } = await supabaseClient.rpc('process_withdrawal_status_atomic', {
+        p_withdrawal_id: withdrawalId,
+        p_new_status: 'processing',
+        p_admin_id: adminUser?.id || null,
+        p_admin_email: adminUser?.email || 'admin',
+        p_admin_notes: notes || transferRes.message || 'Payout transfer initiated',
+        p_provider_ref: transferRes.providerRefId
+      });
+
+      if (rpcErr) {
+        // Direct update fallback
+        await supabaseClient.from('withdrawals').update({
+          status: 'processing',
+          payout_provider: provider.name,
+          payout_reference_id: transferRes.providerRefId,
+          admin_notes: notes || transferRes.message,
+          processed_at: new Date().toISOString()
+        }).eq('id', withdrawalId);
+      }
+
+      return { success: true, status: 'processing', providerRefId: transferRes.providerRefId };
     } catch (err) {
-      console.error('❌ [payoutService.adminUpdatePayoutStatus] Error:', err);
-      return { success: false, error: err.message || 'Failed to update withdrawal status.' };
+      console.error('❌ [payoutService.adminApprovePayout] Error:', err);
+      return { success: false, error: err.message || 'Failed to approve payout.' };
+    }
+  },
+
+  /**
+   * Admin Reject Payout & Release Reserved Balance
+   */
+  adminRejectPayout: async (withdrawalId, adminUser, reason = '') => {
+    if (!supabaseClient || !withdrawalId) {
+      return { success: false, error: 'Missing parameters.' };
+    }
+
+    if (!reason || !reason.trim()) {
+      return { success: false, error: 'A rejection reason is mandatory.' };
+    }
+
+    try {
+      const { data: withdrawal } = await supabaseClient
+        .from('withdrawals')
+        .select('*')
+        .eq('id', withdrawalId)
+        .single();
+
+      if (!withdrawal) {
+        return { success: false, error: 'Withdrawal not found.' };
+      }
+
+      if (['completed', 'rejected', 'cancelled'].includes(withdrawal.status)) {
+        return { success: false, error: `Withdrawal is already in terminal state: ${withdrawal.status}` };
+      }
+
+      // Atomically reject and release funds
+      const { data: rpcRes, error: rpcErr } = await supabaseClient.rpc('process_withdrawal_status_atomic', {
+        p_withdrawal_id: withdrawalId,
+        p_new_status: 'rejected',
+        p_admin_id: adminUser?.id || null,
+        p_admin_email: adminUser?.email || 'admin',
+        p_admin_notes: reason.trim(),
+        p_rejection_reason: reason.trim()
+      });
+
+      if (rpcErr) {
+        await supabaseClient.from('withdrawals').update({
+          status: 'rejected',
+          rejection_reason: reason.trim(),
+          admin_notes: reason.trim(),
+          processed_at: new Date().toISOString()
+        }).eq('id', withdrawalId);
+
+        await supabaseClient.from('wallet_transactions').update({
+          status: 'rejected'
+        }).eq('reference_id', withdrawalId);
+
+        // Record reversal in ledger
+        await supabaseClient.from('wallet_transactions').insert([{
+          creator_id: withdrawal.seller_id,
+          type: 'Payout Reversal',
+          amount: parseFloat(withdrawal.amount),
+          status: 'completed',
+          reference_id: withdrawal.id
+        }]);
+      }
+
+      return { success: true, status: 'rejected' };
+    } catch (err) {
+      console.error('❌ [payoutService.adminRejectPayout] Error:', err);
+      return { success: false, error: err.message || 'Failed to reject payout.' };
+    }
+  },
+
+  /**
+   * Admin Retry Failed Payout
+   */
+  adminRetryPayout: async (withdrawalId, adminUser, notes = '') => {
+    if (!supabaseClient || !withdrawalId) {
+      return { success: false, error: 'Missing parameters.' };
+    }
+
+    try {
+      const { data: withdrawal } = await supabaseClient
+        .from('withdrawals')
+        .select('*, bank_account:bank_account_id(*)')
+        .eq('id', withdrawalId)
+        .single();
+
+      if (!withdrawal) {
+        return { success: false, error: 'Withdrawal not found.' };
+      }
+
+      if (withdrawal.status !== 'failed') {
+        return { success: false, error: 'Only failed payouts can be retried.' };
+      }
+
+      // Re-invoke provider
+      const provider = PayoutFactory.getProvider();
+      const transferRes = await provider.createTransfer({
+        withdrawalId: withdrawal.id,
+        withdrawalNumber: withdrawal.withdrawal_number,
+        amount: parseFloat(withdrawal.net_amount || withdrawal.amount),
+        bankAccount: withdrawal.bank_account
+      });
+
+      if (!transferRes.success) {
+        await supabaseClient.from('payout_attempts').insert([{
+          withdrawal_id: withdrawalId,
+          provider: provider.name,
+          status: 'FAILED',
+          error_message: transferRes.error,
+          raw_response: transferRes.rawResponse
+        }]);
+        return { success: false, error: transferRes.error };
+      }
+
+      await supabaseClient.from('payout_attempts').insert([{
+        withdrawal_id: withdrawalId,
+        provider: provider.name,
+        provider_reference_id: transferRes.providerRefId,
+        status: 'PROCESSING',
+        raw_response: transferRes.rawResponse
+      }]);
+
+      await supabaseClient.from('withdrawals').update({
+        status: 'processing',
+        payout_reference_id: transferRes.providerRefId,
+        admin_notes: notes || 'Retry payout initiated',
+        updated_at: new Date().toISOString()
+      }).eq('id', withdrawalId);
+
+      return { success: true, status: 'processing', providerRefId: transferRes.providerRefId };
+    } catch (err) {
+      console.error('❌ [payoutService.adminRetryPayout] Error:', err);
+      return { success: false, error: err.message || 'Failed to retry payout.' };
+    }
+  },
+
+  /**
+   * Admin Complete & Settle Payout with UTR Reference
+   */
+  adminCompletePayout: async (withdrawalId, adminUser, utrReference = '', notes = '') => {
+    if (!supabaseClient || !withdrawalId) {
+      return { success: false, error: 'Missing parameters.' };
+    }
+
+    try {
+      const { data: rpcRes, error: rpcErr } = await supabaseClient.rpc('process_withdrawal_status_atomic', {
+        p_withdrawal_id: withdrawalId,
+        p_new_status: 'completed',
+        p_admin_id: adminUser?.id || null,
+        p_admin_email: adminUser?.email || 'admin',
+        p_admin_notes: notes || `Settled via UTR: ${utrReference}`,
+        p_provider_ref: utrReference
+      });
+
+      if (rpcErr) {
+        await supabaseClient.from('withdrawals').update({
+          status: 'completed',
+          payout_reference_id: utrReference,
+          admin_notes: notes || `Settled via UTR: ${utrReference}`,
+          completed_at: new Date().toISOString(),
+          processed_at: new Date().toISOString()
+        }).eq('id', withdrawalId);
+
+        await supabaseClient.from('wallet_transactions').update({
+          status: 'completed',
+          type: 'Payout Completed'
+        }).eq('reference_id', withdrawalId);
+      }
+
+      return { success: true, status: 'completed' };
+    } catch (err) {
+      console.error('❌ [payoutService.adminCompletePayout] Error:', err);
+      return { success: false, error: err.message || 'Failed to complete payout.' };
+    }
+  },
+
+  /**
+   * Platform-wide Financial Reconciliation Analysis
+   */
+  adminGetReconciliation: async () => {
+    if (!supabaseClient) return [];
+
+    try {
+      const { data: sellers } = await supabaseClient.from('sellers').select('id, name');
+      if (!sellers || sellers.length === 0) return [];
+
+      const reconciliationReport = await Promise.all(sellers.map(async (seller) => {
+        const overview = await walletService.getWalletOverview(seller.id);
+        const discrepancy = (overview.totalEarnings - overview.totalPayouts - overview.reservedBalance - overview.pendingEarnings) - overview.availableBalance;
+
+        return {
+          sellerId: seller.id,
+          sellerName: seller.name || 'Seller',
+          totalEarnings: overview.totalEarnings,
+          pendingEarnings: overview.pendingEarnings,
+          availableBalance: overview.availableBalance,
+          reservedBalance: overview.reservedBalance,
+          totalPayouts: overview.totalPayouts,
+          isBalanced: Math.abs(discrepancy) < 0.01,
+          discrepancy: discrepancy
+        };
+      }));
+
+      return reconciliationReport;
+    } catch (err) {
+      console.error('❌ [payoutService.adminGetReconciliation] Error:', err);
+      return [];
     }
   }
 };

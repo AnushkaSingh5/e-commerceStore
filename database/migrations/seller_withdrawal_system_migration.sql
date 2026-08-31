@@ -1,11 +1,6 @@
 -- ==============================================================================
--- Migration: Complete Seller Bank Accounts & Withdrawal System (Fixed)
--- Phase: Seller Withdrawal & Payout Management
--- Description:
---   1. Creates public.seller_bank_accounts table referencing public.sellers(id).
---   2. Creates public.withdrawals table with strict constraints and ledger tracking.
---   3. Enables Row Level Security (RLS) for sellers and admins.
---   4. Creates atomic Postgres RPC functions to prevent race conditions & double withdrawals.
+-- Migration: Complete Seller Bank Accounts, Withdrawals & Audit Ledger System
+-- Phase: Production Financial Payout Management
 -- ==============================================================================
 
 -- 1. Create seller_bank_accounts table
@@ -35,7 +30,7 @@ CREATE TABLE IF NOT EXISTS public.withdrawals (
   amount NUMERIC(10, 2) NOT NULL CHECK (amount > 0),
   fee NUMERIC(10, 2) NOT NULL DEFAULT 0.00 CHECK (fee >= 0),
   net_amount NUMERIC(10, 2) NOT NULL CHECK (net_amount > 0),
-  status TEXT NOT NULL CHECK (status IN ('pending', 'processing', 'completed', 'rejected', 'failed', 'cancelled')) DEFAULT 'pending',
+  status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'processing', 'completed', 'rejected', 'failed', 'cancelled')) DEFAULT 'pending',
   payout_provider TEXT DEFAULT 'MOCK',
   payout_reference_id TEXT,
   failure_reason TEXT,
@@ -52,9 +47,44 @@ CREATE INDEX IF NOT EXISTS idx_withdrawals_seller_id ON public.withdrawals(selle
 CREATE INDEX IF NOT EXISTS idx_withdrawals_status ON public.withdrawals(status);
 CREATE INDEX IF NOT EXISTS idx_withdrawals_requested_at ON public.withdrawals(requested_at DESC);
 
--- 3. Enable RLS
+-- 3. Create payout_audit_logs table
+CREATE TABLE IF NOT EXISTS public.payout_audit_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  withdrawal_id UUID REFERENCES public.withdrawals(id) ON DELETE CASCADE,
+  admin_id UUID,
+  admin_email TEXT,
+  action TEXT NOT NULL,
+  previous_status TEXT,
+  new_status TEXT,
+  amount NUMERIC(10, 2),
+  reason TEXT,
+  metadata JSONB,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_payout_audit_withdrawal_id ON public.payout_audit_logs(withdrawal_id);
+CREATE INDEX IF NOT EXISTS idx_payout_audit_created_at ON public.payout_audit_logs(created_at DESC);
+
+-- 4. Create payout_attempts table
+CREATE TABLE IF NOT EXISTS public.payout_attempts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  withdrawal_id UUID NOT NULL REFERENCES public.withdrawals(id) ON DELETE CASCADE,
+  attempt_number INT NOT NULL DEFAULT 1,
+  provider TEXT NOT NULL,
+  provider_reference_id TEXT,
+  status TEXT NOT NULL CHECK (status IN ('INITIATED', 'PROCESSING', 'SUCCESS', 'FAILED')),
+  error_message TEXT,
+  raw_response JSONB,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_payout_attempts_withdrawal_id ON public.payout_attempts(withdrawal_id);
+
+-- 5. Enable RLS
 ALTER TABLE public.seller_bank_accounts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.withdrawals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payout_audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payout_attempts ENABLE ROW LEVEL SECURITY;
 
 -- Policies for seller_bank_accounts
 DROP POLICY IF EXISTS "Sellers can view own bank accounts" ON public.seller_bank_accounts;
@@ -90,7 +120,16 @@ DROP POLICY IF EXISTS "Admins can manage all withdrawals" ON public.withdrawals;
 CREATE POLICY "Admins can manage all withdrawals" ON public.withdrawals
   FOR ALL USING (public.is_admin());
 
--- 4. Atomic Function: Calculate accurate Withdrawable Balance
+-- Policies for audit logs and attempts
+DROP POLICY IF EXISTS "Admins can view audit logs" ON public.payout_audit_logs;
+CREATE POLICY "Admins can view audit logs" ON public.payout_audit_logs
+  FOR ALL USING (public.is_admin());
+
+DROP POLICY IF EXISTS "Admins can view payout attempts" ON public.payout_attempts;
+CREATE POLICY "Admins can view payout attempts" ON public.payout_attempts
+  FOR ALL USING (public.is_admin());
+
+-- 6. Atomic Function: Calculate accurate Withdrawable Balance
 CREATE OR REPLACE FUNCTION public.get_seller_financial_summary(p_seller_id UUID)
 RETURNS JSON AS $$
 DECLARE
@@ -123,10 +162,10 @@ BEGIN
   FROM public.creator_earnings
   WHERE creator_id = p_seller_id AND status = 'available';
 
-  -- 4. Currently pending/processing withdrawal requests (locking funds)
+  -- 4. Currently pending/processing/approved withdrawal requests (locking funds)
   SELECT COALESCE(SUM(amount), 0.00) INTO v_pending_withdrawals
   FROM public.withdrawals
-  WHERE seller_id = p_seller_id AND status IN ('pending', 'processing');
+  WHERE seller_id = p_seller_id AND status IN ('pending', 'approved', 'processing');
 
   -- Also check legacy payout_requests if any pending
   SELECT v_pending_withdrawals + COALESCE(SUM(amount), 0.00) INTO v_pending_withdrawals
@@ -157,7 +196,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 5. Atomic Function: Submit Withdrawal Request with Double-Spend Protection
+-- 7. Atomic Function: Submit Withdrawal Request with Double-Spend Protection
 CREATE OR REPLACE FUNCTION public.create_seller_withdrawal_locked(
   p_seller_id UUID,
   p_store_id UUID,
@@ -246,6 +285,24 @@ BEGIN
     now()
   );
 
+  -- Audit log
+  INSERT INTO public.payout_audit_logs (
+    withdrawal_id,
+    action,
+    previous_status,
+    new_status,
+    amount,
+    reason
+  )
+  VALUES (
+    v_withdrawal_record.id,
+    'PAYOUT_CREATED',
+    NULL,
+    'pending',
+    p_amount,
+    'Seller initiated withdrawal request'
+  );
+
   RETURN json_build_object(
     'success', true,
     'withdrawal', row_to_json(v_withdrawal_record)
@@ -253,10 +310,12 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 6. Atomic Function: Process / Complete / Reject Withdrawal
+-- 8. Atomic Function: Process / Complete / Reject Withdrawal with Audit Logs
 CREATE OR REPLACE FUNCTION public.process_withdrawal_status_atomic(
   p_withdrawal_id UUID,
   p_new_status TEXT,
+  p_admin_id UUID DEFAULT NULL,
+  p_admin_email TEXT DEFAULT NULL,
   p_admin_notes TEXT DEFAULT NULL,
   p_provider_ref TEXT DEFAULT NULL,
   p_rejection_reason TEXT DEFAULT NULL
@@ -266,6 +325,7 @@ DECLARE
   v_withdrawal RECORD;
   v_accumulated NUMERIC(10, 2) := 0.00;
   v_earning RECORD;
+  v_prev_status TEXT;
 BEGIN
   SELECT * INTO v_withdrawal 
   FROM public.withdrawals 
@@ -276,8 +336,10 @@ BEGIN
     RETURN json_build_object('success', false, 'error', 'Withdrawal record not found.');
   END IF;
 
-  IF v_withdrawal.status IN ('completed', 'rejected', 'cancelled') THEN
-    RETURN json_build_object('success', false, 'error', 'Withdrawal is already in a terminal state: ' || v_withdrawal.status);
+  v_prev_status := v_withdrawal.status;
+
+  IF v_prev_status IN ('completed', 'rejected', 'cancelled') THEN
+    RETURN json_build_object('success', false, 'error', 'Withdrawal is already in a terminal state: ' || v_prev_status);
   END IF;
 
   IF p_new_status = 'completed' THEN
@@ -314,6 +376,27 @@ BEGIN
       type = 'Payout Completed'
     WHERE reference_id = p_withdrawal_id;
 
+    INSERT INTO public.payout_audit_logs (
+      withdrawal_id,
+      admin_id,
+      admin_email,
+      action,
+      previous_status,
+      new_status,
+      amount,
+      reason
+    )
+    VALUES (
+      p_withdrawal_id,
+      p_admin_id,
+      p_admin_email,
+      'PAYOUT_COMPLETED',
+      v_prev_status,
+      'completed',
+      v_withdrawal.amount,
+      p_admin_notes
+    );
+
     RETURN json_build_object('success', true, 'status', 'completed');
 
   ELSIF p_new_status = 'rejected' OR p_new_status = 'failed' THEN
@@ -330,18 +413,61 @@ BEGIN
     SET status = p_new_status
     WHERE reference_id = p_withdrawal_id;
 
+    INSERT INTO public.payout_audit_logs (
+      withdrawal_id,
+      admin_id,
+      admin_email,
+      action,
+      previous_status,
+      new_status,
+      amount,
+      reason
+    )
+    VALUES (
+      p_withdrawal_id,
+      p_admin_id,
+      p_admin_email,
+      CASE WHEN p_new_status = 'rejected' THEN 'PAYOUT_REJECTED' ELSE 'PAYOUT_FAILED' END,
+      v_prev_status,
+      p_new_status,
+      v_withdrawal.amount,
+      COALESCE(p_rejection_reason, p_admin_notes)
+    );
+
     RETURN json_build_object('success', true, 'status', p_new_status);
 
-  ELSIF p_new_status = 'processing' THEN
+  ELSIF p_new_status = 'processing' OR p_new_status = 'approved' THEN
     UPDATE public.withdrawals
     SET 
-      status = 'processing',
+      status = p_new_status,
       admin_notes = COALESCE(p_admin_notes, admin_notes),
+      payout_reference_id = COALESCE(p_provider_ref, payout_reference_id),
       processed_at = now(),
       updated_at = now()
     WHERE id = p_withdrawal_id;
 
-    RETURN json_build_object('success', true, 'status', 'processing');
+    INSERT INTO public.payout_audit_logs (
+      withdrawal_id,
+      admin_id,
+      admin_email,
+      action,
+      previous_status,
+      new_status,
+      amount,
+      reason
+    )
+    VALUES (
+      p_withdrawal_id,
+      p_admin_id,
+      p_admin_email,
+      CASE WHEN p_new_status = 'approved' THEN 'PAYOUT_APPROVED' ELSE 'PAYOUT_PROCESSING' END,
+      v_prev_status,
+      p_new_status,
+      v_withdrawal.amount,
+      p_admin_notes
+    );
+
+    RETURN json_build_object('success', true, 'status', p_new_status);
   ELSE
     RETURN json_build_object('success', false, 'error', 'Unsupported status transition.');
   END IF;
