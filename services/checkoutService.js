@@ -107,7 +107,10 @@ export const checkoutService = {
       let shippingCost = 0;
       let selectedShippingProvider = 'Shiprocket';
 
-      if (supabaseClient && storeId !== 'unknown') {
+      if (customerInfo.shipping_cost !== undefined && customerInfo.shipping_cost !== null && !isNaN(parseFloat(customerInfo.shipping_cost))) {
+        shippingCost = parseFloat(parseFloat(customerInfo.shipping_cost).toFixed(2));
+        selectedShippingProvider = customerInfo.shipping_provider || 'Shiprocket';
+      } else if (supabaseClient && storeId !== 'unknown') {
         const { data: storeData } = await supabaseClient
           .from('stores')
           .select('theme_settings')

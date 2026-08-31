@@ -506,6 +506,7 @@ export default function StoreCheckoutPage({ params }) {
       const response = await checkoutService.processCheckout(cart, {
         ...form,
         id: profile?.id,
+        shipping_cost: shippingCost,
         payment_provider: paymentMethod === 'cod' ? 'COD' : (process.env.NEXT_PUBLIC_ACTIVE_PAYMENT_PROVIDER || 'Razorpay')
       }, couponData);
       if (response.success && response.orders?.length > 0) {
