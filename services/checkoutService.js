@@ -148,6 +148,12 @@ export const checkoutService = {
 
       const totalAmount = parseFloat(Math.max(0, subtotal + tax - discount + shippingCost).toFixed(2));
 
+      console.log(`[Order Creation]`);
+      console.log(`  subtotal = ${subtotal}`);
+      console.log(`  discount = ${discount}`);
+      console.log(`  shipping = ${shippingCost}`);
+      console.log(`  amount being saved = ${totalAmount}`);
+
       const orderData = {
         store_id: storeId === 'unknown' ? null : storeId,
         customer_id: customerInfo.id || null,

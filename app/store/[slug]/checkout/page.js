@@ -492,6 +492,12 @@ export default function StoreCheckoutPage({ params }) {
     }
 
     try {
+      console.log(`[Checkout]`);
+      console.log(`  subtotal = ${cartTotal}`);
+      console.log(`  discount = ${discount}`);
+      console.log(`  shipping = ${shippingCost}`);
+      console.log(`  finalTotal = ${total}`);
+
       const couponData = appliedCoupon && isCouponValidForTotal ? {
         coupon_id: appliedCoupon.id,
         coupon_code: appliedCoupon.code,

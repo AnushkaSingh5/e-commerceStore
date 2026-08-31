@@ -73,6 +73,27 @@ export async function POST(request) {
 
     const formattedAmount = parseFloat(parseFloat(amount).toFixed(2));
 
+    let dbAmount = null;
+    if (supabaseClient && orderId) {
+      try {
+        const { data: dbOrder } = await supabaseClient
+          .from('orders')
+          .select('total_amount')
+          .eq('id', orderId)
+          .maybeSingle();
+        if (dbOrder) {
+          dbAmount = dbOrder.total_amount;
+        }
+      } catch (dbErr) {
+        console.warn('⚠️ [create-session] Could not fetch db order total:', dbErr.message);
+      }
+    }
+
+    console.log(`[Cashfree create-session]`);
+    console.log(`  amount received from frontend = ${amount}`);
+    console.log(`  amount fetched from database = ${dbAmount}`);
+    console.log(`  amount sent to Cashfree = ${formattedAmount}`);
+
     const requestPayload = {
       order_amount: formattedAmount,
       order_currency: 'INR',
@@ -90,13 +111,11 @@ export async function POST(request) {
     const response = await cashfree.PGCreateOrder(requestPayload);
     const responseData = response.data;
 
-    console.log(`[Cashfree Debug]`);
-    console.log(`  environment = ${isProduction ? 'PRODUCTION' : 'SANDBOX'}`);
-    console.log(`  API endpoint = ${isProduction ? 'https://api.cashfree.com/pg/orders' : 'https://sandbox.cashfree.com/pg/orders'}`);
-    console.log(`  amount sent to Cashfree = ${formattedAmount}`);
-    console.log(`  payment_session_id present = ${Boolean(responseData.payment_session_id)}`);
-    console.log(`  payment_session_id length = ${responseData.payment_session_id?.length || 0}`);
-    console.log(`  order ID = ${responseData.order_id}`);
+    console.log(`[Cashfree response]`);
+    console.log(`  Cashfree order amount = ${responseData.order_amount || formattedAmount}`);
+    console.log(`  Cashfree order ID = ${responseData.order_id}`);
+    console.log(`  Cashfree payment_session_id present = ${Boolean(responseData.payment_session_id)}`);
+    console.log(`  Cashfree payment_session_id length = ${responseData.payment_session_id?.length || 0}`);
 
     return NextResponse.json({
       id: responseData.order_id,
