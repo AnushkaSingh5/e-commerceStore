@@ -88,6 +88,9 @@ export class ShiprocketProvider {
   /**
    * Register a new pickup location (warehouse) with Shiprocket
    */
+  /**
+   * Register or verify a seller's specific pickup location (warehouse) in Shiprocket
+   */
   async addPickupLocation(settings) {
     if (this.isMock) {
       console.log('ℹ️ [ShiprocketProvider]: Mock Mode. Registering mock pickup location...');
@@ -96,26 +99,46 @@ export class ShiprocketProvider {
         lon: 77.5946, 
         registered: true,
         pickup_location_name: settings.warehouse_name || 'Mock Warehouse',
-        pickup_location_id: `sr_pk_${Math.floor(100000 + Math.random() * 900000)}`
+        pickup_location_id: `sr_pk_${Math.floor(100000 + Math.random() * 900000)}`,
+        warehouse_status: 'registered_active'
       };
     }
 
     try {
       const token = await this._getToken();
       
+      const storeId = settings.store_id || '';
+      const shortStore = storeId ? storeId.replace(/-/g, '').slice(0, 8) : '';
+      const rawName = (settings.warehouse_name || 'Warehouse').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+      const cleanPincode = String(settings.pincode || '').replace(/\D/g, '');
+
+      // Form deterministic unique Shiprocket nickname (max 36 chars)
+      const nickname = shortStore && !rawName.includes(shortStore)
+        ? `${rawName.slice(0, 24)}_${shortStore}`.slice(0, 36)
+        : rawName.slice(0, 36);
+
       // 1. Fetch existing registered pickup locations to avoid duplicates
       const registeredPickups = await this._getPickupLocations(token);
-      const nickname = (settings.warehouse_name || '').trim();
       
-      const existing = registeredPickups.find(p => p.pickup_location.toLowerCase() === nickname.toLowerCase());
+      // Match if already registered in Shiprocket with same nickname OR same stored ID
+      const isLegacyId = (id) => !id || String(id).startsWith('dl_pk_') || String(id).startsWith('mock_') || isNaN(Number(id));
+      const storedId = isLegacyId(settings.pickup_location_id) ? null : String(settings.pickup_location_id);
+
+      const existing = registeredPickups.find(p => 
+        (storedId && String(p.id) === storedId) ||
+        (p.pickup_location.toLowerCase() === nickname.toLowerCase() && String(p.pin_code).trim() === cleanPincode) ||
+        (p.pickup_location.toLowerCase() === (settings.warehouse_name || '').trim().toLowerCase() && String(p.pin_code).trim() === cleanPincode)
+      );
+
       if (existing) {
-        console.log(`ℹ️ [ShiprocketProvider]: Pickup location nickname "${nickname}" already registered. Reusing coordinates.`);
+        console.log(`ℹ️ [ShiprocketProvider]: Pickup location "${existing.pickup_location}" (ID: ${existing.id}) already registered in Shiprocket.`);
         return {
           lat: parseFloat(existing.lat) || 12.9716,
           lon: parseFloat(existing.long) || 77.5946,
           registered: true,
           pickup_location_name: existing.pickup_location,
-          pickup_location_id: existing.id ? String(existing.id) : null
+          pickup_location_id: String(existing.id),
+          warehouse_status: existing.status === 1 ? 'registered_active' : 'pending_verification'
         };
       }
 
@@ -123,7 +146,7 @@ export class ShiprocketProvider {
       let lat = 12.9716;
       let lon = 77.5946;
       try {
-        const queryStr = encodeURIComponent(`${settings.address}, ${settings.city}, ${settings.state}, ${settings.pincode}, ${settings.country || 'India'}`);
+        const queryStr = encodeURIComponent(`${settings.address}, ${settings.city}, ${settings.state}, ${cleanPincode}, ${settings.country || 'India'}`);
         console.log(`Refgeocoding [ShiprocketProvider]: Looking up geocoding coordinates for: "${queryStr}"`);
         const geoResponse = await fetch(`https://nominatim.openstreetmap.org/search?q=${queryStr}&format=json&limit=1`, {
           headers: { 'User-Agent': 'Kreatorstore E-commerce Platform' }
@@ -134,32 +157,37 @@ export class ShiprocketProvider {
             lat = parseFloat(geoData[0].lat);
             lon = parseFloat(geoData[0].lon);
             console.log(`✅ [ShiprocketProvider]: Geocoding succeeded. Latitude: ${lat}, Longitude: ${lon}`);
-          } else {
-            console.warn('⚠️ [ShiprocketProvider]: Geocoding lookup returned 0 results. Using fallback coordinates.');
           }
-        } else {
-          console.warn(`⚠️ [ShiprocketProvider]: Geocoding API returned status ${geoResponse.status}. Using fallback coordinates.`);
         }
       } catch (geoError) {
         console.warn('⚠️ [ShiprocketProvider]: Geocoding API request failed:', geoError.message);
       }
 
       // 3. Construct payload and call Shiprocket Add Pickup Location API
+      const cleanPhone = String(settings.phone || '').replace(/\D/g, '').slice(-10);
+      if (cleanPhone.length !== 10) {
+        throw new Error(`Valid 10-digit phone number is required for pickup location registration (got "${settings.phone}").`);
+      }
+      if (cleanPincode.length !== 6) {
+        throw new Error(`Valid 6-digit postal code is required for pickup location registration (got "${settings.pincode}").`);
+      }
+
       const payload = {
         pickup_location: nickname,
-        name: settings.contact_person,
-        email: settings.email,
-        phone: String(settings.phone || '').replace(/\D/g, '').slice(-10),
-        address: settings.address,
-        city: settings.city,
-        state: settings.state,
+        name: (settings.contact_person || 'Warehouse Manager').trim(),
+        email: (settings.email || 'warehouse@kreatorstore.com').trim(),
+        phone: cleanPhone,
+        address: (settings.address || '').trim(),
+        address_2: (settings.pickup_address_line2 || settings.landmark || '').trim(),
+        city: (settings.city || '').trim(),
+        state: (settings.state || '').trim(),
         country: settings.country || 'India',
-        pin_code: String(settings.pincode || '').replace(/\D/g, ''),
+        pin_code: cleanPincode,
         lat: lat,
         long: lon
       };
 
-      console.log('🔄 [ShiprocketProvider]: Calling Shiprocket Add Pickup Location API...');
+      console.log(`🔄 [ShiprocketProvider]: Calling Shiprocket Add Pickup Location API for "${nickname}"...`);
       const response = await fetch(`${this.apiBase}/settings/company/addpickup`, {
         method: 'POST',
         headers: {
@@ -169,25 +197,32 @@ export class ShiprocketProvider {
         body: JSON.stringify(payload)
       });
 
+      const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const errorJson = await response.json().catch(() => ({}));
-        console.error('❌ [ShiprocketProvider] Add Pickup Location API error response:', JSON.stringify(errorJson, null, 2));
-        throw new Error(errorJson.message || `Shiprocket Add Pickup Location failed: ${response.statusText}`);
+        console.error('❌ [ShiprocketProvider] Add Pickup Location API error response:', JSON.stringify(data, null, 2));
+        throw new Error(data.message || `Shiprocket Add Pickup Location failed with HTTP ${response.status}`);
       }
 
-      const data = await response.json();
-      console.log('✅ [ShiprocketProvider]: Pickup location registered successfully:', data);
+      console.log('✅ [ShiprocketProvider]: Pickup location registered successfully in Shiprocket:', data);
       
-      const resData = data.response?.data || data;
-      const pickupLocationName = resData.pickup_location || nickname;
-      const pickupLocationId = resData.pickup_id || resData.id || null;
+      const resAddr = data.address || data.response?.data || data;
+      const pickupLocationName = resAddr.pickup_code || resAddr.pickup_location || nickname;
+      const pickupLocationId = data.pickup_id || resAddr.id || null;
+
+      if (!pickupLocationId) {
+        throw new Error('Shiprocket response did not return a valid pickup_id.');
+      }
+
+      const isVerified = resAddr.status === 1;
+      const warehouseStatus = isVerified ? 'registered_active' : 'pending_verification';
 
       return { 
         lat, 
         lon, 
         registered: true,
         pickup_location_name: pickupLocationName,
-        pickup_location_id: pickupLocationId ? String(pickupLocationId) : null
+        pickup_location_id: String(pickupLocationId),
+        warehouse_status: warehouseStatus
       };
     } catch (error) {
       console.error('❌ [ShiprocketProvider]: Add Pickup Location failed:', error.message);
@@ -196,7 +231,7 @@ export class ShiprocketProvider {
   }
 
   /**
-   * Create forward shipment order
+   * Create forward shipment order strictly using the seller's verified pickup location
    */
   async createShipment(orderId, orderDetails, pickupSettings) {
     if (this.isMock) {
@@ -220,41 +255,74 @@ export class ShiprocketProvider {
 
     try {
       const token = await this._getToken();
-      // Fetch active pickup locations from Shiprocket to verify/fallback
-      // Fetch registered pickup locations from Shiprocket to verify/fallback
-      let registeredPickups = [];
-      try {
-        registeredPickups = await this._getPickupLocations(token);
-      } catch (pkErr) {
-        console.warn('⚠️ [ShiprocketProvider]: Failed to fetch registered pickup locations:', pkErr.message);
+
+      // STRICT VALIDATION: Store must have complete shipping settings
+      if (!pickupSettings) {
+        throw new Error('❌ [ShiprocketProvider]: Seller shipping settings (warehouse address) are missing for this store. Please configure them in Dashboard Settings.');
       }
+
+      const storePin = String(pickupSettings.pincode || '').replace(/\D/g, '');
+      if (storePin.length !== 6) {
+        throw new Error(`❌ [ShiprocketProvider]: Seller warehouse pincode is invalid ("${pickupSettings.pincode || ''}"). A valid 6-digit postal code is required.`);
+      }
+
+      const storePhone = String(pickupSettings.phone || '').replace(/\D/g, '');
+      if (storePhone.length < 10) {
+        throw new Error(`❌ [ShiprocketProvider]: Seller warehouse contact phone number is invalid. A valid 10-digit mobile number is required.`);
+      }
+
+      if (!pickupSettings.address || pickupSettings.address.trim().length < 5) {
+        throw new Error(`❌ [ShiprocketProvider]: Seller warehouse street address is incomplete. Please enter a full street address in Dashboard Settings.`);
+      }
+
+      // Fetch registered pickup locations from Shiprocket
+      const registeredPickups = await this._getPickupLocations(token);
 
       let selectedPickupLocation = '';
       let selectedPickupLocationId = '';
-      const configuredName = (pickupSettings?.warehouse_name || '').trim();
 
-      const matchedLocation = registeredPickups.find(p => 
-        (configuredName && p.pickup_location.toLowerCase() === configuredName.toLowerCase()) ||
-        (pickupSettings?.pickup_location_name && p.pickup_location.toLowerCase() === pickupSettings.pickup_location_name.toLowerCase()) ||
-        (pickupSettings?.pincode && String(p.pin_code || '').trim() === String(pickupSettings.pincode).trim()) ||
-        p.is_primary_location === 1 ||
-        p.pickup_location.toLowerCase() === 'primary'
-      );
-      if (matchedLocation) {
-        selectedPickupLocation = matchedLocation.pickup_location;
-        selectedPickupLocationId = matchedLocation.id ? String(matchedLocation.id) : '';
-        console.log(`✅ [ShiprocketProvider]: Found matching pickup location: ${selectedPickupLocation} (ID: ${selectedPickupLocationId})`);
-      } else if (pickupSettings && configuredName) {
-        console.log(`🔄 [ShiprocketProvider]: Pickup location "${configuredName}" is not registered on Shiprocket. Auto-registering now...`);
+      // Check if stored pickup_location_id is a valid Shiprocket ID (not legacy dl_pk_*)
+      const isLegacyId = (id) => !id || String(id).startsWith('dl_pk_') || String(id).startsWith('mock_') || isNaN(Number(id));
+      const storedPickupId = isLegacyId(pickupSettings.pickup_location_id) ? null : String(pickupSettings.pickup_location_id);
+
+      let matchedLocation = null;
+
+      // Hierarchy 1: Match deterministically by real stored Shiprocket ID first
+      if (storedPickupId) {
+        matchedLocation = registeredPickups.find(p => String(p.id) === storedPickupId);
+      }
+
+      // Hierarchy 2: Match by exact registered nickname AND matching pincode
+      if (!matchedLocation && pickupSettings.pickup_location_name) {
+        matchedLocation = registeredPickups.find(p => 
+          p.pickup_location.toLowerCase() === pickupSettings.pickup_location_name.trim().toLowerCase() &&
+          String(p.pin_code || '').trim() === storePin
+        );
+      }
+
+      // Hierarchy 3: Match by warehouse_name AND matching pincode
+      if (!matchedLocation && pickupSettings.warehouse_name) {
+        matchedLocation = registeredPickups.find(p => 
+          p.pickup_location.toLowerCase() === pickupSettings.warehouse_name.trim().toLowerCase() &&
+          String(p.pin_code || '').trim() === storePin
+        );
+      }
+
+      // Hierarchy 4: Auto-register seller's dedicated warehouse address in Shiprocket if not yet matched
+      if (!matchedLocation) {
+        console.log(`🔄 [ShiprocketProvider]: Store pickup location "${pickupSettings.warehouse_name}" (${storePin}) is not yet registered in Shiprocket. Auto-registering seller warehouse now...`);
         try {
-          const regResult = await this.addPickupLocation(pickupSettings);
-          selectedPickupLocation = regResult.pickup_location_name || configuredName;
-          selectedPickupLocationId = regResult.pickup_location_id || '';
-          
-          // Propagate registration back to Supabase store_shipping_settings
+          const regResult = await this.addPickupLocation({
+            ...pickupSettings,
+            store_id: orderDetails.store_id || pickupSettings.store_id
+          });
+
+          selectedPickupLocation = regResult.pickup_location_name;
+          selectedPickupLocationId = String(regResult.pickup_location_id);
+
+          // Update Supabase with the verified Shiprocket ID
           const { supabaseClient } = await import('@/lib/supabase');
-          if (supabaseClient) {
-            console.log(`🔄 [ShiprocketProvider]: Syncing registered pickup details for store ${orderDetails.store_id || pickupSettings.store_id} to database`);
+          if (supabaseClient && (orderDetails.store_id || pickupSettings.store_id)) {
             await supabaseClient
               .from('store_shipping_settings')
               .update({
@@ -262,16 +330,46 @@ export class ShiprocketProvider {
                 pickup_location_id: selectedPickupLocationId,
                 lat: regResult.lat,
                 lon: regResult.lon,
-                shiprocket_registered: regResult.registered
+                shiprocket_registered: true,
+                warehouse_status: regResult.warehouse_status || 'registered_active',
+                last_synced: new Date().toISOString()
               })
               .eq('store_id', orderDetails.store_id || pickupSettings.store_id);
           }
         } catch (regErr) {
           console.error('❌ [ShiprocketProvider]: Auto pickup registration failed:', regErr.message);
-          throw new Error(`Warehouse pickup location "${configuredName}" is not registered on Shiprocket, and auto-registration failed: ${regErr.message}`);
+          // STRICT: Do NOT fall back to Primary! Fail safely.
+          throw new Error(`Seller pickup location is not registered/verified with Shiprocket (${regErr.message}). Never using generic fallback. Please verify your pickup address in Settings.`);
         }
       } else {
-        throw new Error('❌ [ShiprocketProvider]: Shipping settings (warehouse configuration) are missing for this store. Please configure them in settings first.');
+        selectedPickupLocation = matchedLocation.pickup_location;
+        selectedPickupLocationId = String(matchedLocation.id);
+        console.log(`✅ [ShiprocketProvider]: Matched verified seller pickup location: "${selectedPickupLocation}" (ID: ${selectedPickupLocationId}, PIN: ${matchedLocation.pin_code})`);
+
+        // If store had a legacy ID or missing ID in database, persist the real Shiprocket ID now
+        if (storedPickupId !== selectedPickupLocationId && (orderDetails.store_id || pickupSettings.store_id)) {
+          try {
+            const { supabaseClient } = await import('@/lib/supabase');
+            if (supabaseClient) {
+              await supabaseClient
+                .from('store_shipping_settings')
+                .update({
+                  pickup_location_name: selectedPickupLocation,
+                  pickup_location_id: selectedPickupLocationId,
+                  shiprocket_registered: true,
+                  warehouse_status: matchedLocation.status === 1 ? 'registered_active' : 'pending_verification',
+                  last_synced: new Date().toISOString()
+                })
+                .eq('store_id', orderDetails.store_id || pickupSettings.store_id);
+            }
+          } catch (syncErr) {
+            console.warn('⚠️ [ShiprocketProvider]: Syncing pickup ID notice:', syncErr.message);
+          }
+        }
+      }
+
+      if (!selectedPickupLocation) {
+        throw new Error('❌ [ShiprocketProvider]: Seller pickup location is not registered/verified with Shiprocket. Shipment creation halted.');
       }
 
       // Retrieve structured address fields from database
@@ -654,19 +752,73 @@ export class ShiprocketProvider {
   }
 
   /**
+   * Request / Schedule Pickup from Shiprocket
+   */
+  async requestPickup(shipmentId, pickupDate = null) {
+    if (this.isMock) {
+      console.log(`[ShiprocketProvider]: Mock Pickup requested for shipment: ${shipmentId}`);
+      const scheduledDate = pickupDate || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      return {
+        success: true,
+        pickup_status: 1,
+        pickup_token_number: `SR_PK_${Math.floor(100000 + Math.random() * 900000)}`,
+        pickup_scheduled_date: scheduledDate,
+        status: 'Pickup Scheduled'
+      };
+    }
+
+    try {
+      const token = await this._getToken();
+      const dateStr = pickupDate || new Date().toISOString().split('T')[0];
+      console.log(`🔄 [ShiprocketProvider]: Requesting pickup for Shipment ID: ${shipmentId} on ${dateStr}...`);
+
+      const response = await fetch(`${this.apiBase}/courier/generate/pickup`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          shipment_id: [shipmentId],
+          pickup_date: [dateStr]
+        })
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.message || `Pickup scheduling failed with HTTP ${response.status}`);
+      }
+
+      console.log('✅ [ShiprocketProvider]: Pickup scheduled successfully:', data);
+      const resObj = data.response || data;
+      return {
+        success: true,
+        pickup_status: data.pickup_status || 1,
+        pickup_token_number: resObj.pickup_token_number || resObj.token || null,
+        pickup_scheduled_date: resObj.pickup_scheduled_date || dateStr,
+        status: 'Pickup Scheduled'
+      };
+    } catch (error) {
+      console.error('❌ [ShiprocketProvider]: Request pickup failed:', error.message);
+      throw error;
+    }
+  }
+
+  /**
    * Generate and download Shipping Label PDF URL
    */
   async getLabelUrl(shipmentId) {
     if (this.isMock) {
       console.log(`[ShiprocketProvider]: Mock Label requested for shipment: ${shipmentId}`);
-      // Return a public sample PDF URL
       return 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf';
     }
 
     try {
       const token = await this._getToken();
       console.log(`🔄 [ShiprocketProvider]: Generating label for Shipment ID: ${shipmentId}`);
-      const response = await fetch(`${this.apiBase}/shipping/label`, {
+      
+      // Primary: /courier/generate/label
+      let response = await fetch(`${this.apiBase}/courier/generate/label`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -675,15 +827,28 @@ export class ShiprocketProvider {
         body: JSON.stringify({ shipment_id: [shipmentId] })
       });
 
+      // Fallback: /shipping/label
+      if (!response.ok) {
+        response = await fetch(`${this.apiBase}/shipping/label`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ shipment_id: [shipmentId] })
+        });
+      }
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Failed to generate label`);
+        throw new Error(errorData.message || `Failed to generate label: HTTP ${response.status}`);
       }
 
       const data = await response.json();
-      if (data.label_created === 1 && data.label_url) {
-        console.log('✅ [ShiprocketProvider]: Label URL successfully generated:', data.label_url);
-        return data.label_url;
+      const labelUrl = data.label_url || data.response?.label_url;
+      if (labelUrl) {
+        console.log('✅ [ShiprocketProvider]: Label URL successfully generated:', labelUrl);
+        return labelUrl;
       } else {
         throw new Error('Label not created yet. AWB might not be assigned.');
       }
@@ -694,12 +859,52 @@ export class ShiprocketProvider {
   }
 
   /**
-   * Get Tracking Status update
+   * Generate Manifest for Pickup Handover
+   */
+  async generateManifest(shipmentId) {
+    if (this.isMock) {
+      console.log(`[ShiprocketProvider]: Mock Manifest requested for shipment: ${shipmentId}`);
+      return 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf';
+    }
+
+    try {
+      const token = await this._getToken();
+      console.log(`🔄 [ShiprocketProvider]: Generating manifest for Shipment ID: ${shipmentId}`);
+
+      const response = await fetch(`${this.apiBase}/manifests/generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ shipment_id: [shipmentId] })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.message || `Failed to generate manifest: HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      const manifestUrl = data.manifest_url || data.response?.manifest_url;
+      if (manifestUrl) {
+        console.log('✅ [ShiprocketProvider]: Manifest URL generated successfully:', manifestUrl);
+        return manifestUrl;
+      } else {
+        throw new Error('Manifest could not be generated. Ensure pickup is requested first.');
+      }
+    } catch (error) {
+      console.error('❌ [ShiprocketProvider]: Generate manifest failed:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Get Tracking Status update with Strict Lifecycle Mapping
    */
   async getTrackingStatus(awbNumber) {
     if (this.isMock) {
-      // Return a random shipping status simulation
-      const statuses = ['Picked Up', 'In Transit', 'Out For Delivery', 'Delivered'];
+      const statuses = ['Pickup Scheduled', 'Picked Up', 'In Transit', 'Out For Delivery', 'Delivered'];
       const randomStatus = statuses[Math.floor(Math.random() * statuses.length)];
       console.log(`[ShiprocketProvider]: Mock Tracking status for AWB ${awbNumber} is "${randomStatus}"`);
       return {
@@ -707,7 +912,7 @@ export class ShiprocketProvider {
         status: randomStatus,
         estimated_delivery: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB'),
         activities: [
-          { date: new Date().toISOString(), activity: `Shipment package status updated to: ${randomStatus}`, location: 'Hub Depot' }
+          { date: new Date().toISOString(), activity: `Shipment status updated to: ${randomStatus}`, location: 'Hub Depot' }
         ]
       };
     }
@@ -733,21 +938,34 @@ export class ShiprocketProvider {
         throw new Error(trackingData?.error_message || 'No tracking information available.');
       }
 
-      const currentStatus = trackingData.shipment_track_activities?.[0]?.status || 'In Transit';
+      const currentStatus = trackingData.shipment_track_activities?.[0]?.status || trackingData.current_status || 'In Transit';
+      const srStatusLower = (currentStatus || '').toLowerCase();
       
-      // Map Shiprocket status codes to our standard statuses
-      // Shiprocket status maps: pick, in-transit, out-for-delivery, dl (delivered), rto (returned), canceled
-      let mappedStatus = 'In Transit';
-      const srStatusLower = currentStatus.toLowerCase();
+      // Strict Phase 6 Lifecycle Status Mapping:
+      // We NEVER mark "Picked Up" merely because generate/pickup was called.
+      // It must be confirmed by courier scan activity.
+      let mappedStatus = 'Pickup Scheduled';
       
       if (srStatusLower.includes('delivered') || srStatusLower === 'dl') {
         mappedStatus = 'Delivered';
-      } else if (srStatusLower.includes('pickup') || srStatusLower.includes('picked')) {
-        mappedStatus = 'Picked Up';
       } else if (srStatusLower.includes('out for delivery') || srStatusLower.includes('outfordelivery')) {
         mappedStatus = 'Out For Delivery';
+      } else if (srStatusLower.includes('in transit') || srStatusLower.includes('intransit') || srStatusLower.includes('reached')) {
+        mappedStatus = 'In Transit';
+      } else if (srStatusLower.includes('picked up') || srStatusLower.includes('pickup done') || srStatusLower === 'pu') {
+        mappedStatus = 'Picked Up';
+      } else if (srStatusLower.includes('pickup scheduled') || srStatusLower.includes('pickup booked')) {
+        mappedStatus = 'Pickup Scheduled';
+      } else if (srStatusLower.includes('pickup reschedule')) {
+        mappedStatus = 'Pickup Rescheduled';
+      } else if (srStatusLower.includes('pickup exception') || srStatusLower.includes('pickup error')) {
+        mappedStatus = 'Pickup Exception';
+      } else if (srStatusLower.includes('pickup fail')) {
+        mappedStatus = 'Pickup Failed';
+      } else if (srStatusLower.includes('undelivered') || srStatusLower.includes('delivery fail')) {
+        mappedStatus = 'Delivery Failed';
       } else if (srStatusLower.includes('rto') || srStatusLower.includes('return')) {
-        mappedStatus = 'Returned';
+        mappedStatus = 'RTO';
       } else if (srStatusLower.includes('cancel')) {
         mappedStatus = 'Cancelled';
       }

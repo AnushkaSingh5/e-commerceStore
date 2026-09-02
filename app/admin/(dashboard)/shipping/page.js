@@ -16,6 +16,27 @@ export default function AdminShippingPage() {
   const [syncingMap, setSyncingMap] = useState({});
   const [statusFilter, setStatusFilter] = useState('All');
 
+  const [activeTab, setActiveTab] = useState('orders'); // 'orders' | 'diagnostic'
+  const [diagnosticData, setDiagnosticData] = useState(null);
+  const [loadingDiagnostic, setLoadingDiagnostic] = useState(false);
+
+  const loadDiagnosticData = async () => {
+    setLoadingDiagnostic(true);
+    try {
+      const res = await fetch('/api/admin/shipping/diagnostic');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setDiagnosticData(data);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load shipping diagnostic:', e);
+    } finally {
+      setLoadingDiagnostic(false);
+    }
+  };
+
   const loadShippingData = async () => {
     setLoading(true);
     if (!supabaseClient) {
@@ -238,171 +259,340 @@ export default function AdminShippingPage() {
           />
         </div>
       </div>
-
-      {/* Metrics Cards */}
-      <div className="summary-cards" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '20px', marginBottom: '32px' }}>
-        <div className="summary-card" style={{ background: '#ffffff', borderRadius: '16px', padding: '20px', border: '1px solid #f1f5f9', boxShadow: '0 2px 10px rgba(0,0,0,0.01)' }}>
-          <span style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Total Orders Paid</span>
-          <div style={{ fontSize: '28px', fontWeight: 800, color: '#1e293b', marginTop: '6px' }}>{totalShipments}</div>
-        </div>
-        <div className="summary-card" style={{ background: '#ffffff', borderRadius: '16px', padding: '20px', border: '1px solid #f1f5f9', boxShadow: '0 2px 10px rgba(0,0,0,0.01)' }}>
-          <span style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Pending Shipments</span>
-          <div style={{ fontSize: '28px', fontWeight: 800, color: '#f59e0b', marginTop: '6px' }}>{pendingCount}</div>
-        </div>
-        <div className="summary-card" style={{ background: '#ffffff', borderRadius: '16px', padding: '20px', border: '1px solid #f1f5f9', boxShadow: '0 2px 10px rgba(0,0,0,0.01)' }}>
-          <span style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Delivered Orders</span>
-          <div style={{ fontSize: '28px', fontWeight: 800, color: '#10b981', marginTop: '6px' }}>{deliveredCount}</div>
-        </div>
-        <div className="summary-card" style={{ background: '#ffffff', borderRadius: '16px', padding: '20px', border: '1px solid #f1f5f9', boxShadow: '0 2px 10px rgba(0,0,0,0.01)' }}>
-          <span style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Returned Orders</span>
-          <div style={{ fontSize: '28px', fontWeight: 800, color: '#ef4444', marginTop: '6px' }}>{returnedCount}</div>
-        </div>
-        <div className="summary-card last-card" style={{ background: '#ffffff', borderRadius: '16px', padding: '20px', border: '1px solid #f1f5f9', boxShadow: '0 2px 10px rgba(0,0,0,0.01)' }}>
-          <span style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Cancelled Shipments</span>
-          <div style={{ fontSize: '28px', fontWeight: 800, color: '#64748b', marginTop: '6px' }}>{cancelledCount}</div>
-        </div>
+      {/* View Switcher Tabs */}
+      <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
+        <button
+          onClick={() => setActiveTab('orders')}
+          style={{
+            padding: '10px 20px',
+            borderRadius: '12px',
+            border: 'none',
+            background: activeTab === 'orders' ? '#0f172a' : '#f1f5f9',
+            color: activeTab === 'orders' ? '#ffffff' : '#64748b',
+            fontWeight: 700,
+            fontSize: '14px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}
+        >
+          🚚 Orders & Shipments
+        </button>
+        <button
+          onClick={() => {
+            setActiveTab('diagnostic');
+            if (!diagnosticData) loadDiagnosticData();
+          }}
+          style={{
+            padding: '10px 20px',
+            borderRadius: '12px',
+            border: 'none',
+            background: activeTab === 'diagnostic' ? '#0f172a' : '#f1f5f9',
+            color: activeTab === 'diagnostic' ? '#ffffff' : '#64748b',
+            fontWeight: 700,
+            fontSize: '14px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}
+        >
+          📍 Seller Pickup Locations Audit (14 Stores)
+        </button>
       </div>
 
-      {/* Status Filter Pills */}
-      <div className="filter-tabs" style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
-        {['All', 'Pending', 'Delivered', 'Returned', 'Cancelled'].map(filter => {
-          const isActive = statusFilter === filter;
-          let count = totalShipments;
-          if (filter === 'Pending') count = pendingCount;
-          else if (filter === 'Delivered') count = deliveredCount;
-          else if (filter === 'Returned') count = returnedCount;
-          else if (filter === 'Cancelled') count = cancelledCount;
+      {activeTab === 'diagnostic' ? (
+        <div className="diagnostic-view">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <div>
+              <h2 style={{ fontSize: '20px', fontWeight: 800, color: '#1e293b' }}>Seller Multi-Pickup Locations Audit</h2>
+              <p style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>
+                Auditing local store warehouse settings against live Shiprocket registered pickup locations. No Primary generic fallback is permitted.
+              </p>
+            </div>
+            <Button variant="outline" onClick={loadDiagnosticData} disabled={loadingDiagnostic}>
+              {loadingDiagnostic ? 'Auditing...' : '🔄 Refresh Audit'}
+            </Button>
+          </div>
 
-          return (
-            <button
-              key={filter}
-              onClick={() => setStatusFilter(filter)}
-              style={{
-                padding: '8px 16px',
-                borderRadius: '99px',
-                border: '1px solid',
-                borderColor: isActive ? '#2563eb' : '#e2e8f0',
-                background: isActive ? '#eff6ff' : '#ffffff',
-                color: isActive ? '#1d4ed8' : '#64748b',
-                fontSize: '13px',
-                fontWeight: 700,
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                transition: 'all 0.2s ease-in-out'
-              }}
-            >
-              <span>{filter}</span>
-              <span style={{
-                background: isActive ? '#2563eb' : '#f1f5f9',
-                color: isActive ? '#ffffff' : '#64748b',
-                fontSize: '11px',
-                padding: '2px 6px',
-                borderRadius: '99px',
-                fontWeight: 600
-              }}>
-                {count}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Desktop view: Table */}
-      <div className="desktop-view-only card" style={{ background: '#fff', borderRadius: '20px', padding: '24px', boxShadow: '0 2px 12px rgba(0,0,0,0.02)', border: '1px solid #f1f5f9' }}>
-        <Table columns={columns} data={filteredOrders} actions={actions} loading={loading} />
-      </div>
-
-      {/* Mobile view: Shipping Cards */}
-      <div className="mobile-view-only mobile-list">
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Loading shipments...</div>
-        ) : filteredOrders.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '40px', color: '#64748b', background: '#fff', borderRadius: '16px' }}>No shipments found.</div>
-        ) : (
-          filteredOrders.map(order => {
-            const isDelivered = order.shipping_status === 'Delivered';
-            const isCancelled = order.shipping_status === 'Cancelled';
-            const statusClass = String(order.shipping_status || 'Pending').toLowerCase().replace(' ', '-');
-            
-            // Get avatar initial colors based on store name
-            const storeName = order.store?.name || 'Platform Store';
-            const getStoreColor = (name) => {
-              const colors = [
-                { bg: '#eff6ff', text: '#2563eb', border: '#bfdbfe' }, // blue
-                { bg: '#fffbeb', text: '#d97706', border: '#fef3c7' }, // orange
-                { bg: '#ecfdf5', text: '#059669', border: '#a7f3d0' }, // green
-                { bg: '#f5f3ff', text: '#7c3aed', border: '#ddd6fe' }  // purple
-              ];
-              let sum = 0;
-              for (let i = 0; i < name.length; i++) {
-                sum += name.charCodeAt(i);
-              }
-              return colors[sum % colors.length];
-            };
-            const storeColors = getStoreColor(storeName);
-
-            return (
-              <div key={order.id} className="mobile-shipping-card">
-                {/* Upper block: Avatar, ID, Status, Date */}
-                <div className="mobile-card-top-section">
-                  {/* Left Box Icon */}
-                  <div className="mobile-shipping-box-icon" style={{ background: storeColors.bg, color: storeColors.text, borderColor: storeColors.border }}>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-                  </div>
-                  {/* Info Column */}
-                  <div className="mobile-shipping-info">
-                    <span className="order-id">{order.id.substring(0, 8).toUpperCase()}</span>
-                    <span className="subtitle-text">{storeName} • {order.customer_name}</span>
-                    <span className="courier-text">{order.courier_name || 'Not Shipped'}</span>
-                  </div>
-                  {/* Right Status / Date Column */}
-                  <div className="mobile-shipping-status-date">
-                    <span className={`status-pill ${statusClass}`} style={{
-                      background: isDelivered ? '#ecfdf5' : isCancelled ? '#fef2f2' : '#eff6ff',
-                      color: isDelivered ? '#047857' : isCancelled ? '#b91c1c' : '#1d4ed8'
-                    }}>
-                      {order.shipping_status || 'Pending'}
-                    </span>
-                    <div className="requested-date-row">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
-                      <span>{new Date(order.created_at).toLocaleDateString('en-GB')}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Divider */}
-                <div className="mobile-card-divider"></div>
-
-                {/* Bottom block: AWB tracking and Actions */}
-                <div className="mobile-card-bottom-section">
-                  <div className="awb-track-column">
-                    <span className="bottom-label">AWB / TRACKING</span>
-                    <span className="awb-value">{order.awb_number || 'N/A'}</span>
-                  </div>
-                  <div className="actions-column">
-                    <span className="bottom-label">ACTIONS</span>
-                    <div className="mobile-buttons-row">
-                      <Button variant="secondary" size="sm" onClick={() => setSelectedOrder(order)}>Manage</Button>
-                      {order.awb_number && (
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          disabled={syncingMap[order.id]} 
-                          onClick={() => handleSyncStatus(order.id)}
-                        >
-                          {syncingMap[order.id] ? 'Syncing...' : 'Sync'}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </div>
+          {/* Diagnostic Summary Cards */}
+          {diagnosticData?.summary && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+              <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: '#64748b' }}>TOTAL PLATFORM STORES</span>
+                <div style={{ fontSize: '24px', fontWeight: 800, color: '#0f172a', marginTop: '4px' }}>{diagnosticData.summary.totalStores}</div>
               </div>
-            );
-          })
-        )}
-      </div>
+              <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #bbf7d0' }}>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: '#166534' }}>VERIFIED & ACTIVE</span>
+                <div style={{ fontSize: '24px', fontWeight: 800, color: '#16a34a', marginTop: '4px' }}>{diagnosticData.summary.verifiedActive}</div>
+              </div>
+              <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #fed7aa' }}>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: '#9a3412' }}>LEGACY DELHIVERY IDS</span>
+                <div style={{ fontSize: '24px', fontWeight: 800, color: '#ea580c', marginTop: '4px' }}>{diagnosticData.summary.legacyIds}</div>
+              </div>
+              <div style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #fecaca' }}>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: '#991b1b' }}>MISSING LOCAL SETTINGS</span>
+                <div style={{ fontSize: '24px', fontWeight: 800, color: '#dc2626', marginTop: '4px' }}>{diagnosticData.summary.missingSettings}</div>
+              </div>
+            </div>
+          )}
+
+          {/* Diagnostic Table */}
+          <div style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                <thead>
+                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: '#475569' }}>STORE & SLUG</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: '#475569' }}>SELLER</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: '#475569' }}>WAREHOUSE & PIN</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: '#475569' }}>STORED PICKUP ID</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: '#475569' }}>STATUS</th>
+                    <th style={{ padding: '14px 16px', fontWeight: 700, color: '#475569' }}>DIAGNOSTIC REASON / ACTION</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loadingDiagnostic ? (
+                    <tr>
+                      <td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Running live diagnostic across all 14 stores...</td>
+                    </tr>
+                  ) : !diagnosticData?.stores?.length ? (
+                    <tr>
+                      <td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>No stores found.</td>
+                    </tr>
+                  ) : (
+                    diagnosticData.stores.map((store, idx) => {
+                      let badgeBg = '#f1f5f9';
+                      let badgeColor = '#475569';
+                      let badgeText = store.verificationStatus;
+
+                      if (store.verificationStatus === 'VERIFIED_ACTIVE') {
+                        badgeBg = '#dcfce7';
+                        badgeColor = '#166534';
+                        badgeText = '✓ Verified Active';
+                      } else if (store.verificationStatus === 'PENDING_VERIFICATION') {
+                        badgeBg = '#fef3c7';
+                        badgeColor = '#92400e';
+                        badgeText = '⏳ Pending Verification';
+                      } else if (store.verificationStatus === 'LEGACY_UNVERIFIED_ID') {
+                        badgeBg = '#ffedd5';
+                        badgeColor = '#9a3412';
+                        badgeText = '⚠️ Legacy ID (dl_pk_*)';
+                      } else if (store.verificationStatus === 'NOT_REGISTERED_IN_SHIPROCKET') {
+                        badgeBg = '#fee2e2';
+                        badgeColor = '#991b1b';
+                        badgeText = '✕ Not in Shiprocket';
+                      } else if (store.verificationStatus === 'MISSING_SETTINGS') {
+                        badgeBg = '#f1f5f9';
+                        badgeColor = '#64748b';
+                        badgeText = 'Missing Address';
+                      }
+
+                      return (
+                        <tr key={store.storeId || idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                          <td style={{ padding: '14px 16px' }}>
+                            <strong>{store.storeName}</strong>
+                            <div style={{ fontSize: '11px', color: '#64748b' }}>/{store.storeSlug}</div>
+                          </td>
+                          <td style={{ padding: '14px 16px' }}>
+                            <div>{store.sellerName}</div>
+                            <div style={{ fontSize: '11px', color: '#64748b' }}>{store.sellerEmail}</div>
+                          </td>
+                          <td style={{ padding: '14px 16px' }}>
+                            <div>{store.warehouseName}</div>
+                            <div style={{ fontSize: '11px', color: '#64748b' }}>PIN: {store.pincode} • {store.city}</div>
+                          </td>
+                          <td style={{ padding: '14px 16px' }}>
+                            {store.storedPickupId ? (
+                              <code style={{ fontSize: '11px', background: store.isLegacyId ? '#ffedd5' : '#f1f5f9', color: store.isLegacyId ? '#c2410c' : '#334155', padding: '2px 6px', borderRadius: '4px' }}>
+                                {store.storedPickupId}
+                              </code>
+                            ) : (
+                              <span style={{ color: '#94a3b8' }}>None</span>
+                            )}
+                          </td>
+                          <td style={{ padding: '14px 16px' }}>
+                            <span style={{ display: 'inline-block', padding: '4px 8px', borderRadius: '6px', fontSize: '12px', fontWeight: 700, background: badgeBg, color: badgeColor }}>
+                              {badgeText}
+                            </span>
+                          </td>
+                          <td style={{ padding: '14px 16px', maxWidth: '280px', color: '#475569', fontSize: '12px' }}>
+                            {store.problemReason}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Metrics Cards */}
+          <div className="summary-cards" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '20px', marginBottom: '32px' }}>
+            <div className="summary-card" style={{ background: '#ffffff', borderRadius: '16px', padding: '20px', border: '1px solid #f1f5f9', boxShadow: '0 2px 10px rgba(0,0,0,0.01)' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Total Orders Paid</span>
+              <div style={{ fontSize: '28px', fontWeight: 800, color: '#1e293b', marginTop: '6px' }}>{totalShipments}</div>
+            </div>
+            <div className="summary-card" style={{ background: '#ffffff', borderRadius: '16px', padding: '20px', border: '1px solid #f1f5f9', boxShadow: '0 2px 10px rgba(0,0,0,0.01)' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Pending Shipments</span>
+              <div style={{ fontSize: '28px', fontWeight: 800, color: '#f59e0b', marginTop: '6px' }}>{pendingCount}</div>
+            </div>
+            <div className="summary-card" style={{ background: '#ffffff', borderRadius: '16px', padding: '20px', border: '1px solid #f1f5f9', boxShadow: '0 2px 10px rgba(0,0,0,0.01)' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Delivered Orders</span>
+              <div style={{ fontSize: '28px', fontWeight: 800, color: '#10b981', marginTop: '6px' }}>{deliveredCount}</div>
+            </div>
+            <div className="summary-card" style={{ background: '#ffffff', borderRadius: '16px', padding: '20px', border: '1px solid #f1f5f9', boxShadow: '0 2px 10px rgba(0,0,0,0.01)' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Returned Orders</span>
+              <div style={{ fontSize: '28px', fontWeight: 800, color: '#ef4444', marginTop: '6px' }}>{returnedCount}</div>
+            </div>
+            <div className="summary-card last-card" style={{ background: '#ffffff', borderRadius: '16px', padding: '20px', border: '1px solid #f1f5f9', boxShadow: '0 2px 10px rgba(0,0,0,0.01)' }}>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Cancelled Shipments</span>
+              <div style={{ fontSize: '28px', fontWeight: 800, color: '#64748b', marginTop: '6px' }}>{cancelledCount}</div>
+            </div>
+          </div>
+
+          {/* Status Filter Pills */}
+          <div className="filter-tabs" style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
+            {['All', 'Pending', 'Delivered', 'Returned', 'Cancelled'].map(filter => {
+              const isActive = statusFilter === filter;
+              let count = totalShipments;
+              if (filter === 'Pending') count = pendingCount;
+              else if (filter === 'Delivered') count = deliveredCount;
+              else if (filter === 'Returned') count = returnedCount;
+              else if (filter === 'Cancelled') count = cancelledCount;
+
+              return (
+                <button
+                  key={filter}
+                  onClick={() => setStatusFilter(filter)}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '99px',
+                    border: '1px solid',
+                    borderColor: isActive ? '#2563eb' : '#e2e8f0',
+                    background: isActive ? '#eff6ff' : '#ffffff',
+                    color: isActive ? '#1d4ed8' : '#64748b',
+                    fontSize: '13px',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    transition: 'all 0.2s ease-in-out'
+                  }}
+                >
+                  <span>{filter}</span>
+                  <span style={{
+                    background: isActive ? '#2563eb' : '#f1f5f9',
+                    color: isActive ? '#ffffff' : '#64748b',
+                    fontSize: '11px',
+                    padding: '2px 6px',
+                    borderRadius: '99px',
+                    fontWeight: 600
+                  }}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Desktop Table View */}
+          <div className="desktop-view-only" style={{ background: '#ffffff', borderRadius: '16px', border: '1px solid #f1f5f9', boxShadow: '0 2px 10px rgba(0,0,0,0.01)', overflow: 'hidden' }}>
+            <Table 
+              columns={columns} 
+              data={filteredOrders} 
+              loading={loading} 
+              actions={actions}
+            />
+          </div>
+
+          {/* Mobile Cards View */}
+          <div className="mobile-view-only">
+            {loading ? (
+              <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>Loading shipments...</div>
+            ) : filteredOrders.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px', color: '#64748b', background: '#fff', borderRadius: '16px' }}>No shipments found.</div>
+            ) : (
+              filteredOrders.map(order => {
+                const isDelivered = order.shipping_status === 'Delivered';
+                const isCancelled = order.shipping_status === 'Cancelled';
+                const statusClass = String(order.shipping_status || 'Pending').toLowerCase().replace(' ', '-');
+                
+                const storeName = order.store?.name || 'Platform Store';
+                const getStoreColor = (name) => {
+                  const colors = [
+                    { bg: '#eff6ff', text: '#2563eb', border: '#bfdbfe' },
+                    { bg: '#fffbeb', text: '#d97706', border: '#fef3c7' },
+                    { bg: '#ecfdf5', text: '#059669', border: '#a7f3d0' },
+                    { bg: '#f5f3ff', text: '#7c3aed', border: '#ddd6fe' }
+                  ];
+                  let sum = 0;
+                  for (let i = 0; i < name.length; i++) {
+                    sum += name.charCodeAt(i);
+                  }
+                  return colors[sum % colors.length];
+                };
+                const storeColors = getStoreColor(storeName);
+
+                return (
+                  <div key={order.id} className="mobile-shipping-card">
+                    <div className="mobile-card-top-section">
+                      <div className="mobile-shipping-box-icon" style={{ background: storeColors.bg, color: storeColors.text, borderColor: storeColors.border }}>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+                      </div>
+                      <div className="mobile-shipping-info">
+                        <span className="order-id">{order.id.substring(0, 8).toUpperCase()}</span>
+                        <span className="subtitle-text">{storeName} • {order.customer_name}</span>
+                        <span className="courier-text">{order.courier_name || 'Not Shipped'}</span>
+                      </div>
+                      <div className="mobile-shipping-status-date">
+                        <span className={`status-pill ${statusClass}`} style={{
+                          background: isDelivered ? '#ecfdf5' : isCancelled ? '#fef2f2' : '#eff6ff',
+                          color: isDelivered ? '#047857' : isCancelled ? '#b91c1c' : '#1d4ed8'
+                        }}>
+                          {order.shipping_status || 'Pending'}
+                        </span>
+                        <div className="requested-date-row">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+                          <span>{new Date(order.created_at).toLocaleDateString('en-GB')}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mobile-card-divider"></div>
+                    <div className="mobile-card-bottom-section">
+                      <div className="awb-track-column">
+                        <span className="bottom-label">AWB / TRACKING</span>
+                        <span className="awb-value">{order.awb_number || 'N/A'}</span>
+                      </div>
+                      <div className="actions-column">
+                        <span className="bottom-label">ACTIONS</span>
+                        <div className="mobile-buttons-row">
+                          <Button variant="secondary" size="sm" onClick={() => setSelectedOrder(order)}>Manage</Button>
+                          {order.awb_number && (
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              disabled={syncingMap[order.id]} 
+                              onClick={() => handleSyncStatus(order.id)}
+                            >
+                              {syncingMap[order.id] ? 'Syncing...' : 'Sync'}
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </>
+      )}
 
       <Modal 
         isOpen={!!selectedOrder} 
@@ -458,25 +648,63 @@ export default function AdminShippingPage() {
             </div>
 
             {selectedOrder.awb_number && (
-              <div style={{ display: 'flex', gap: '12px', marginTop: '10px' }}>
-                <a 
-                  href={`/api/shipping/label?order_id=${selectedOrder.id}`} 
-                  target="_blank" 
-                  rel="noopener noreferrer" 
-                  style={{ flex: 1, textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: '#0f172a', color: '#fff', padding: '12px', borderRadius: '12px', fontSize: '13px', fontWeight: 700 }}
-                >
-                  🖨️ Download Packing & Shipping Label
-                </a>
-                {selectedOrder.tracking_url && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
+                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
                   <a 
-                    href={selectedOrder.tracking_url} 
+                    href={`/api/shipping/label?order_id=${selectedOrder.id}`} 
                     target="_blank" 
                     rel="noopener noreferrer" 
-                    style={{ flex: 1, textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: '#ffffff', color: '#0f172a', border: '1px solid #cbd5e1', padding: '12px', borderRadius: '12px', fontSize: '13px', fontWeight: 700 }}
+                    style={{ flex: 1, textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: '#0f172a', color: '#fff', padding: '12px', borderRadius: '12px', fontSize: '13px', fontWeight: 700 }}
                   >
-                    🚚 Direct Courier Tracking Link
+                    🖨️ Download Shipping Label
                   </a>
-                )}
+                  
+                  <button 
+                    onClick={async () => {
+                      try {
+                        const res = await fetch('/api/shipping/pickup', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ orderId: selectedOrder.id })
+                        });
+                        const data = await res.json();
+                        if (!res.ok || !data.success) {
+                          throw new Error(data.message || 'Failed to schedule pickup');
+                        }
+                        alert(`Pickup scheduled successfully! Token: ${data.pickup_token_number || 'N/A'}`);
+                        await loadShippingData();
+                        setSelectedOrder(prev => ({ ...prev, shipping_status: 'Pickup Scheduled' }));
+                      } catch (err) {
+                        alert('Error scheduling pickup: ' + err.message);
+                      }
+                    }}
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: '#7c3aed', color: '#fff', border: 'none', padding: '12px', borderRadius: '12px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
+                  >
+                    📦 Schedule Courier Pickup
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                  <a 
+                    href={`/api/shipping/manifest?order_id=${selectedOrder.id}`} 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    style={{ flex: 1, textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: '#ffffff', color: '#7c3aed', border: '1px solid #c4b5fd', padding: '12px', borderRadius: '12px', fontSize: '13px', fontWeight: 700 }}
+                  >
+                    📋 Download Manifest
+                  </a>
+
+                  {selectedOrder.tracking_url && (
+                    <a 
+                      href={selectedOrder.tracking_url} 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      style={{ flex: 1, textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: '#ffffff', color: '#0f172a', border: '1px solid #cbd5e1', padding: '12px', borderRadius: '12px', fontSize: '13px', fontWeight: 700 }}
+                    >
+                      🚚 Direct Courier Tracking Link
+                    </a>
+                  )}
+                </div>
               </div>
             )}
           </div>

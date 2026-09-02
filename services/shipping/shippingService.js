@@ -159,10 +159,10 @@ export const shippingService = {
     const providerName = process.env.NEXT_PUBLIC_ACTIVE_SHIPPING_PROVIDER || 'Shiprocket';
     const provider = shippingFactory.getProvider(providerName);
     
-    let regResult = { lat: null, lon: null, registered: false, pickup_location_name: null, pickup_location_id: null };
+    let regResult = { lat: null, lon: null, registered: false, pickup_location_name: null, pickup_location_id: null, warehouse_status: 'pending_registration' };
     if (provider && typeof provider.addPickupLocation === 'function') {
       try {
-        regResult = await provider.addPickupLocation(settings);
+        regResult = await provider.addPickupLocation({ ...settings, store_id: storeId });
       } catch (regErr) {
         console.error('⚠️ [shippingService.saveShippingSettings]: Provider pickup location registration failed:', regErr.message);
         throw new Error(`Shipping provider registration failed: ${regErr.message}`);
@@ -259,6 +259,41 @@ export const shippingService = {
         throw new Error('Customer phone number must be at least 10 digits.');
       }
 
+      // Check if order already has an active shipment and AWB
+      if (orderDetails.shipment_id && orderDetails.awb_number) {
+        console.log(`ℹ️ [shippingService.createShipment]: Order ${orderId} already has AWB (${orderDetails.awb_number}) and Shipment (${orderDetails.shipment_id}). Preserving existing shipment.`);
+        
+        let labelUrl = orderDetails.shipping_label_url;
+        if (!labelUrl) {
+          try {
+            const provider = shippingFactory.getProvider(orderDetails.shipping_provider || 'Shiprocket');
+            labelUrl = await provider.getLabelUrl(orderDetails.shipment_id);
+            if (labelUrl && supabaseClient) {
+              await safeOrderUpdate(supabaseClient, orderId, { 
+                shipping_label_url: labelUrl,
+                shipping_status: orderDetails.shipping_status === 'Shipment Created' || orderDetails.shipping_status === 'Pending' ? 'Label Generated' : orderDetails.shipping_status
+              });
+            }
+          } catch (lblErr) {
+            console.warn('⚠️ [Shipping]: Auto-fetch label notice:', lblErr.message);
+          }
+        }
+
+        return {
+          success: true,
+          shipment_id: orderDetails.shipment_id,
+          awb_number: orderDetails.awb_number,
+          courier_name: orderDetails.courier_name,
+          tracking_number: orderDetails.tracking_number || orderDetails.awb_number,
+          tracking_url: orderDetails.tracking_url,
+          status: orderDetails.shipping_status || 'AWB Assigned',
+          shipping_label_url: labelUrl || null,
+          shipping_manifest_url: orderDetails.shipping_manifest_url || null,
+          pickup_token_number: orderDetails.pickup_token_number || null,
+          pickup_scheduled_date: orderDetails.pickup_scheduled_date || null
+        };
+      }
+
       // 2. Fetch shipping settings for the store
       const pickupSettings = await shippingService.getShippingSettings(orderDetails.store_id);
       if (!pickupSettings) {
@@ -328,10 +363,23 @@ export const shippingService = {
       }
 
       // ============================================================
-      // STEP 3: Record Successful Shipment in Database
+      // STEP 3: Auto-generate Shipping Label immediately after AWB
+      // ============================================================
+      let labelUrl = null;
+      try {
+        const activeProvider = shippingFactory.getProvider(actualProviderUsed);
+        labelUrl = await activeProvider.getLabelUrl(result.shipment_id);
+        console.log(`✅ [Shipping] Auto-generated shipping label URL: ${labelUrl}`);
+      } catch (lblErr) {
+        console.warn('⚠️ [Shipping] Label generation pending or will be generated on demand:', lblErr.message);
+      }
+
+      const finalStatus = labelUrl ? 'Label Generated' : 'AWB Assigned';
+
+      // ============================================================
+      // STEP 4: Record Successful Shipment in Database
       // ============================================================
       if (supabaseClient) {
-        const isShipped = result.status === 'Picked Up' || result.status === 'In Transit' || result.status === 'Out For Delivery';
         await safeOrderUpdate(supabaseClient, orderId, {
           shipping_provider: actualProviderUsed,
           shipment_id: result.shipment_id || null,
@@ -339,31 +387,23 @@ export const shippingService = {
           courier_name: result.courier_name || null,
           tracking_number: result.tracking_number || result.awb_number || null,
           tracking_url: result.tracking_url || null,
-          shipping_status: result.status || 'Shipment Created',
+          shipping_status: finalStatus,
+          shipping_label_url: labelUrl || null,
           estimated_delivery: result.estimated_delivery || null,
-          shipped_at: isShipped ? new Date().toISOString() : null,
-          delivered_at: result.status === 'Delivered' ? new Date().toISOString() : null,
+          shipped_at: null,
+          delivered_at: null,
           pickup_location_name: result.pickup_location_name || null,
           pickup_location_id: result.pickup_location_id || null,
           pickup_id: result.pickup_id || null
         });
-      } else {
-        // In-memory mock database update for offline testing
-        if (orderDetails) {
-          orderDetails.shipping_provider = actualProviderUsed;
-          orderDetails.shipment_id = result.shipment_id || null;
-          orderDetails.awb_number = result.awb_number || null;
-          orderDetails.courier_name = result.courier_name || null;
-          orderDetails.tracking_number = result.tracking_number || result.awb_number || null;
-          orderDetails.tracking_url = result.tracking_url || null;
-          orderDetails.shipping_status = result.status || 'Shipment Created';
-          orderDetails.estimated_delivery = result.estimated_delivery || null;
-        }
-        console.log(`✅ [Shipping] Offline mock database sync complete.`);
       }
 
-      console.log(`✅ [Shipping] Shipment created successfully via ${actualProviderUsed} for Order: ${orderId}. AWB: ${result.awb_number}`);
-      return result;
+      console.log(`✅ [Shipping] Shipment created successfully via ${actualProviderUsed} for Order: ${orderId}. AWB: ${result.awb_number}, Status: ${finalStatus}`);
+      return {
+        ...result,
+        shipping_status: finalStatus,
+        shipping_label_url: labelUrl || null
+      };
     } catch (e) {
       console.error(`❌ [Shipping] Failed for Order ${orderId}:`, e.message);
       throw e;
@@ -461,6 +501,69 @@ export const shippingService = {
       console.error(`❌ [shippingService.syncTracking] Failed for Order ${orderId}:`, e.message);
       throw e;
     }
+  },
+
+  /**
+   * Schedule Courier Pickup for Shipment
+   */
+  requestPickup: async (orderId, pickupDate = null) => {
+    if (!orderId) throw new Error('Order ID is required to schedule pickup.');
+
+    const orderDetails = await orderService.getOrderDetails(orderId);
+    if (!orderDetails) throw new Error('Order details not found.');
+    if (!orderDetails.shipment_id) throw new Error('No shipment exists for this order. Please ship the order first.');
+
+    const providerName = orderDetails.shipping_provider || 'Shiprocket';
+    const provider = shippingFactory.getProvider(providerName);
+
+    if (!provider.requestPickup || typeof provider.requestPickup !== 'function') {
+      throw new Error(`Provider ${providerName} does not support pickup requests.`);
+    }
+
+    console.log(`🔄 [shippingService.requestPickup]: Scheduling pickup for Order ${orderId} (Shipment: ${orderDetails.shipment_id})...`);
+    const pickupRes = await provider.requestPickup(orderDetails.shipment_id, pickupDate);
+
+    if (supabaseClient) {
+      await safeOrderUpdate(supabaseClient, orderId, {
+        shipping_status: 'Pickup Scheduled',
+        pickup_scheduled_date: pickupRes.pickup_scheduled_date || null,
+        pickup_token_number: pickupRes.pickup_token_number || null,
+        pickup_status: 'Scheduled'
+      });
+    }
+
+    console.log(`✅ [shippingService.requestPickup]: Pickup scheduled for Order ${orderId}. Token: ${pickupRes.pickup_token_number}`);
+    return pickupRes;
+  },
+
+  /**
+   * Generate Shipping Manifest PDF URL for Pickup Handover
+   */
+  generateManifest: async (orderId) => {
+    if (!orderId) throw new Error('Order ID is required to generate manifest.');
+
+    const orderDetails = await orderService.getOrderDetails(orderId);
+    if (!orderDetails) throw new Error('Order details not found.');
+    if (!orderDetails.shipment_id) throw new Error('No shipment exists for this order.');
+
+    const providerName = orderDetails.shipping_provider || 'Shiprocket';
+    const provider = shippingFactory.getProvider(providerName);
+
+    if (!provider.generateManifest || typeof provider.generateManifest !== 'function') {
+      throw new Error(`Provider ${providerName} does not support manifest generation.`);
+    }
+
+    console.log(`🔄 [shippingService.generateManifest]: Generating manifest for Order ${orderId} (Shipment: ${orderDetails.shipment_id})...`);
+    const manifestUrl = await provider.generateManifest(orderDetails.shipment_id);
+
+    if (supabaseClient && manifestUrl) {
+      await safeOrderUpdate(supabaseClient, orderId, {
+        shipping_manifest_url: manifestUrl
+      });
+    }
+
+    console.log(`✅ [shippingService.generateManifest]: Manifest generated: ${manifestUrl}`);
+    return { success: true, manifest_url: manifestUrl };
   },
 
   /**

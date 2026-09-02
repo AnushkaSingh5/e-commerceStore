@@ -247,10 +247,17 @@ export default function CreatorShippingPage() {
           pickup_location_id: updated.pickup_location_id || prev.pickup_location_id
         }));
       }
-      setSuccessMsg('Delhivery shipping settings saved successfully!');
+      const isLegacy = updated?.pickup_location_id && String(updated.pickup_location_id).startsWith('dl_pk_');
+      if (isLegacy) {
+        setSuccessMsg('Address saved locally. Please re-save to complete Shiprocket registration.');
+      } else if (updated?.warehouse_status === 'registered_active') {
+        setSuccessMsg('Shipping warehouse details verified and registered with Shiprocket successfully!');
+      } else {
+        setSuccessMsg('Shipping warehouse details saved. Verification in progress with Shiprocket.');
+      }
     } catch (err) {
       console.error(err);
-      setErrorMsg(err.message || 'Failed to save Delhivery shipping settings.');
+      setErrorMsg(err.message || 'Failed to save shipping settings.');
     } finally {
       setSaving(false);
     }
@@ -264,11 +271,13 @@ export default function CreatorShippingPage() {
     );
   }
 
+  const isLegacyStoredId = settings.pickup_location_id && String(settings.pickup_location_id).startsWith('dl_pk_');
+
   return (
     <div className="shipping-dashboard-container" style={{ padding: '24px', maxWidth: '100%' }}>
       <div className="shipping-header" style={{ marginBottom: '24px' }}>
-        <h1 style={{ fontSize: '28px', fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>Delhivery Shipping Configuration</h1>
-        <p style={{ color: '#64748b', fontSize: '15px' }}>Configure your pickup warehouse details. This information will be sent directly to Delhivery to arrange order pickups.</p>
+        <h1 style={{ fontSize: '28px', fontWeight: 800, color: '#0f172a', marginBottom: '8px' }}>Shiprocket Shipping & Warehouse Configuration</h1>
+        <p style={{ color: '#64748b', fontSize: '15px' }}>Configure your dedicated pickup warehouse details. This address will be registered with Shiprocket to dispatch couriers directly to your warehouse.</p>
       </div>
 
       {successMsg && (
@@ -283,11 +292,15 @@ export default function CreatorShippingPage() {
         </div>
       )}
 
-      {settings.pickup_location_id && (
-        <div className="sync-badge" style={{ padding: '12px 16px', borderRadius: '12px', background: '#f8fafc', color: '#334155', border: '1px solid #e2e8f0', marginBottom: '20px', fontSize: '13px' }}>
-          <span style={{ fontWeight: 700 }}>✅ Delhivery Registered:</span> Location Nickname <strong>"{settings.pickup_location_name}"</strong> is synced with Delhivery (ID: <code>{settings.pickup_location_id}</code>).
+      {settings.pickup_location_id && !isLegacyStoredId ? (
+        <div className="sync-badge" style={{ padding: '12px 16px', borderRadius: '12px', background: '#ecfdf5', color: '#166534', border: '1px solid #bbf7d0', marginBottom: '20px', fontSize: '13px' }}>
+          <span style={{ fontWeight: 700 }}>✅ Shiprocket Verified:</span> Warehouse Nickname <strong>"{settings.pickup_location_name || settings.warehouse_name}"</strong> is registered with Shiprocket (Pickup ID: <code>{settings.pickup_location_id}</code>).
         </div>
-      )}
+      ) : isLegacyStoredId ? (
+        <div className="sync-badge" style={{ padding: '12px 16px', borderRadius: '12px', background: '#fffbeb', color: '#92400e', border: '1px solid #fde68a', marginBottom: '20px', fontSize: '13px' }}>
+          <span style={{ fontWeight: 700 }}>⚠️ Legacy ID Detected:</span> Your warehouse has a legacy ID (<code>{settings.pickup_location_id}</code>). Click <strong>"Save Warehouse Configuration"</strong> below to register this address with Shiprocket.
+        </div>
+      ) : null}
 
       <div className="shipping-card">
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
