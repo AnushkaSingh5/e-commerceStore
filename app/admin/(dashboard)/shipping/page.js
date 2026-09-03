@@ -659,29 +659,35 @@ export default function AdminShippingPage() {
                     🖨️ Download Shipping Label
                   </a>
                   
-                  <button 
-                    onClick={async () => {
-                      try {
-                        const res = await fetch('/api/shipping/pickup', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ orderId: selectedOrder.id })
-                        });
-                        const data = await res.json();
-                        if (!res.ok || !data.success) {
-                          throw new Error(data.message || 'Failed to schedule pickup');
+                  {selectedOrder.shipping_status !== 'Picked Up' && 
+                   selectedOrder.shipping_status !== 'In Transit' && 
+                   selectedOrder.shipping_status !== 'Out For Delivery' && 
+                   selectedOrder.shipping_status !== 'Delivered' && 
+                   selectedOrder.shipping_status !== 'Cancelled' && (
+                    <button 
+                      onClick={async () => {
+                        try {
+                          const res = await fetch('/api/shipping/pickup', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ orderId: selectedOrder.id })
+                          });
+                          const data = await res.json();
+                          if (!res.ok || !data.success) {
+                            throw new Error(data.message || 'Failed to schedule pickup');
+                          }
+                          alert(`Pickup scheduled successfully! Token: ${data.pickup_token_number || 'N/A'}`);
+                          await loadShippingData();
+                          setSelectedOrder(prev => ({ ...prev, shipping_status: 'Pickup Scheduled' }));
+                        } catch (err) {
+                          alert('Error scheduling pickup: ' + err.message);
                         }
-                        alert(`Pickup scheduled successfully! Token: ${data.pickup_token_number || 'N/A'}`);
-                        await loadShippingData();
-                        setSelectedOrder(prev => ({ ...prev, shipping_status: 'Pickup Scheduled' }));
-                      } catch (err) {
-                        alert('Error scheduling pickup: ' + err.message);
-                      }
-                    }}
-                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: '#7c3aed', color: '#fff', border: 'none', padding: '12px', borderRadius: '12px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
-                  >
-                    📦 Schedule Courier Pickup
-                  </button>
+                      }}
+                      style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: '#7c3aed', color: '#fff', border: 'none', padding: '12px', borderRadius: '12px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
+                    >
+                      📦 Schedule Courier Pickup
+                    </button>
+                  )}
                 </div>
 
                 <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
