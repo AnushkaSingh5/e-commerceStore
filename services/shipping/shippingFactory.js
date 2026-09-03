@@ -17,14 +17,13 @@ class ShippingFactory {
     const rawName = providerName || process.env.NEXT_PUBLIC_ACTIVE_SHIPPING_PROVIDER || 'Shiprocket';
     const nameLower = rawName.toLowerCase();
     
-    if (nameLower.includes('shiprocket')) {
-      return this.providers['Shiprocket'];
-    }
-    if (nameLower.includes('delhivery')) {
+    // If explicitly running direct Delhivery with direct token configured
+    if (nameLower.includes('delhivery') && process.env.NEXT_PUBLIC_ACTIVE_SHIPPING_PROVIDER === 'Delhivery' && process.env.DELHIVERY_API_TOKEN && !process.env.DELHIVERY_API_TOKEN.includes('mock')) {
       return this.providers['Delhivery'];
     }
     
-    console.warn(`⚠️ [ShippingFactory]: Provider "${rawName}" not recognized. Defaulting to Shiprocket.`);
+    // KreatorStore operates centrally on Shiprocket (multi-courier aggregator)
+    // All shipments, pickup requests, manifests, and tracking route via Shiprocket
     return this.providers['Shiprocket'];
   }
 }

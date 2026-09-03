@@ -960,5 +960,24 @@ export class DelhiveryProvider {
       };
     }
   }
+
+  /**
+   * Delegate pickup scheduling to Shiprocket
+   */
+  async requestPickup(shipmentId, pickupDate = null) {
+    const { ShiprocketProvider } = await import('./shiprocketProvider');
+    const sr = new ShiprocketProvider();
+    return await sr.requestPickup(shipmentId, pickupDate);
+  }
+
+  /**
+   * Delegate manifest generation to Shiprocket
+   */
+  async generateManifest(shipmentId) {
+    const { ShiprocketProvider } = await import('./shiprocketProvider');
+    const sr = new ShiprocketProvider();
+    return await sr.generateManifest(shipmentId);
+  }
 }
+
 

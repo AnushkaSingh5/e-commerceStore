@@ -595,10 +595,10 @@ export const shippingService = {
     if (!orderDetails) throw new Error('Order details not found.');
     if (!orderDetails.shipment_id) throw new Error('No shipment exists for this order.');
 
-    const providerName = orderDetails.shipping_provider || 'Delhivery';
+    const providerName = orderDetails.shipping_provider || 'Shiprocket';
     const provider = shippingFactory.getProvider(providerName);
     
-    if (providerName === 'Delhivery') {
+    if (providerName === 'Delhivery' && process.env.NEXT_PUBLIC_ACTIVE_SHIPPING_PROVIDER === 'Delhivery' && process.env.DELHIVERY_API_TOKEN) {
       const trackingNo = orderDetails.awb_number || orderDetails.shipment_id;
       if (provider.isMock) {
         console.log(`[shippingService.fetchLabelPdf]: Mock mode. Downloading sample PDF...`);
