@@ -659,11 +659,11 @@ export default function AdminShippingPage() {
                     🖨️ Download Shipping Label
                   </a>
                   
-                  {selectedOrder.shipping_status !== 'Picked Up' && 
-                   selectedOrder.shipping_status !== 'In Transit' && 
-                   selectedOrder.shipping_status !== 'Out For Delivery' && 
-                   selectedOrder.shipping_status !== 'Delivered' && 
-                   selectedOrder.shipping_status !== 'Cancelled' && (
+                  {['Picked Up', 'In Transit', 'Out For Delivery', 'Delivered'].includes(selectedOrder.shipping_status) ? (
+                    <span style={{ flex: 1, textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '12px', borderRadius: '12px', fontSize: '13px', fontWeight: 700 }}>
+                      ✅ Package In Transit / Picked Up
+                    </span>
+                  ) : selectedOrder.shipping_status !== 'Cancelled' && (
                     <button 
                       onClick={async () => {
                         try {
@@ -685,7 +685,7 @@ export default function AdminShippingPage() {
                       }}
                       style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: '#7c3aed', color: '#fff', border: 'none', padding: '12px', borderRadius: '12px', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}
                     >
-                      📦 Schedule Courier Pickup
+                      {selectedOrder.shipping_status === 'Pickup Scheduled' ? '🔄 Reschedule Pickup' : '📦 Schedule Courier Pickup'}
                     </button>
                   )}
                 </div>

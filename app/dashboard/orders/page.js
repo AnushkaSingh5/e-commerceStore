@@ -2232,11 +2232,11 @@ export default function OrdersPage() {
                       🖨️ Print Shipping Label
                     </a>
 
-                    {selectedOrder?.shipping_status !== 'Picked Up' && 
-                     selectedOrder?.shipping_status !== 'In Transit' && 
-                     selectedOrder?.shipping_status !== 'Out For Delivery' && 
-                     selectedOrder?.shipping_status !== 'Delivered' && 
-                     selectedOrder?.shipping_status !== 'Cancelled' && (
+                    {['Picked Up', 'In Transit', 'Out For Delivery', 'Delivered'].includes(selectedOrder?.shipping_status) ? (
+                      <span style={{ fontSize: '12px', fontWeight: 700, padding: '8px 14px', background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        ✅ Package In Transit / Picked Up
+                      </span>
+                    ) : selectedOrder?.shipping_status !== 'Cancelled' && (
                       <button 
                         onClick={async () => {
                           try {
@@ -2257,7 +2257,7 @@ export default function OrdersPage() {
                         }}
                         style={{ fontSize: '12px', fontWeight: 700, padding: '8px 14px', background: '#7c3aed', color: '#ffffff', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
                       >
-                        📦 Schedule Pickup
+                        {selectedOrder?.shipping_status === 'Pickup Scheduled' ? '🔄 Reschedule Pickup' : '📦 Schedule Pickup'}
                       </button>
                     )}
 
