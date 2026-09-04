@@ -755,6 +755,14 @@ export class ShiprocketProvider {
    * Request / Schedule Pickup from Shiprocket
    */
   async requestPickup(shipmentId, pickupDate = null) {
+    if (!shipmentId) {
+      throw new Error('Valid Shipment ID is required to schedule pickup.');
+    }
+
+    if (typeof shipmentId === 'string' && (shipmentId.startsWith('UPL') || shipmentId.startsWith('dl_pk_') || shipmentId.startsWith('mock_'))) {
+      throw new Error(`This order was created under the legacy direct Delhivery system (Shipment ID: ${shipmentId}) and does not exist in Shiprocket. Please test pickup on an order created with Shiprocket (e.g. Order 4e665825 or any newly placed order).`);
+    }
+
     if (this.isMock) {
       console.log(`[ShiprocketProvider]: Mock Pickup requested for shipment: ${shipmentId}`);
       const scheduledDate = pickupDate || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
