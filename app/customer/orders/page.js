@@ -262,14 +262,14 @@ export default function CustomerOrdersPage() {
                     {(() => {
                       const getStepIndex = (status) => {
                         const s = String(status || 'Pending').toLowerCase();
-                        if (s === 'pending') return 0;
-                        if (s === 'shipment created') return 1;
-                        if (s === 'picked up') return 2;
-                        if (s === 'in transit') return 3;
+                        if (s === 'pending' || s === 'awaiting_payment' || s === 'order confirmed') return 0;
+                        if (s === 'shipment created' || s === 'manifested' || s === 'awb assigned' || s === 'label generated' || s === 'pickup scheduled' || s === 'pickup rescheduled') return 1;
+                        if (s === 'picked up' || s === 'dispatched' || s === 'collected') return 2;
+                        if (s === 'in transit' || s === 'reached hub') return 3;
                         if (s === 'out for delivery') return 4;
                         if (s === 'delivered') return 5;
                         if (s === 'cancelled') return -1;
-                        if (s === 'returned') return -2;
+                        if (s === 'returned' || s === 'rto') return -2;
                         return 0;
                       };
 

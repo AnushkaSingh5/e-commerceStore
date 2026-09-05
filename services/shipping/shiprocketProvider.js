@@ -946,23 +946,23 @@ export class ShiprocketProvider {
         throw new Error(trackingData?.error_message || 'No tracking information available.');
       }
 
-      const currentStatus = trackingData.shipment_track_activities?.[0]?.status || trackingData.current_status || 'In Transit';
+      const currentStatus = trackingData.shipment_track_activities?.[0]?.status || trackingData.current_status || 'AWB Assigned';
       const srStatusLower = (currentStatus || '').toLowerCase();
       
       // Strict Phase 6 Lifecycle Status Mapping:
-      // We NEVER mark "Picked Up" merely because generate/pickup was called.
-      // It must be confirmed by courier scan activity.
-      let mappedStatus = 'Pickup Scheduled';
+      // We NEVER mark "Picked Up" or "In Transit" merely because an AWB was assigned or pickup booked.
+      // It must be confirmed by courier scan activity or explicit courier tracking status.
+      let mappedStatus = 'AWB Assigned';
       
       if (srStatusLower.includes('delivered') || srStatusLower === 'dl') {
         mappedStatus = 'Delivered';
-      } else if (srStatusLower.includes('out for delivery') || srStatusLower.includes('outfordelivery')) {
+      } else if (srStatusLower.includes('out for delivery') || srStatusLower.includes('outfordelivery') || srStatusLower === 'ofd') {
         mappedStatus = 'Out For Delivery';
-      } else if (srStatusLower.includes('in transit') || srStatusLower.includes('intransit') || srStatusLower.includes('reached')) {
+      } else if (srStatusLower.includes('in transit') || srStatusLower.includes('intransit') || srStatusLower.includes('reached') || srStatusLower.includes('hub') || srStatusLower === 'it') {
         mappedStatus = 'In Transit';
-      } else if (srStatusLower.includes('picked up') || srStatusLower.includes('pickup done') || srStatusLower === 'pu') {
+      } else if (srStatusLower.includes('picked up') || srStatusLower.includes('pickup done') || srStatusLower.includes('collected') || srStatusLower === 'pu') {
         mappedStatus = 'Picked Up';
-      } else if (srStatusLower.includes('pickup scheduled') || srStatusLower.includes('pickup booked')) {
+      } else if (srStatusLower.includes('pickup scheduled') || srStatusLower.includes('pickup booked') || srStatusLower.includes('scheduled')) {
         mappedStatus = 'Pickup Scheduled';
       } else if (srStatusLower.includes('pickup reschedule')) {
         mappedStatus = 'Pickup Rescheduled';
@@ -976,6 +976,10 @@ export class ShiprocketProvider {
         mappedStatus = 'RTO';
       } else if (srStatusLower.includes('cancel')) {
         mappedStatus = 'Cancelled';
+      } else if (srStatusLower.includes('manifest') || srStatusLower.includes('label generated')) {
+        mappedStatus = 'Label Generated';
+      } else if (srStatusLower.includes('awb') || srStatusLower.includes('ready to ship') || srStatusLower.includes('open') || srStatusLower.includes('new') || srStatusLower.includes('confirmed')) {
+        mappedStatus = 'AWB Assigned';
       }
 
       const activities = (trackingData.shipment_track_activities || []).map(act => ({
